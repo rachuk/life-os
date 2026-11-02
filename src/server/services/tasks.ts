@@ -7,6 +7,7 @@ import { one, type Tx } from '../db';
 import { AppError, notFound } from '../http';
 import { audit } from './audit';
 import type { UserContext } from './profile';
+import { patchOf } from '@/lib/patch';
 
 export interface TaskRow {
   id: string;
@@ -65,7 +66,7 @@ export const taskInputSchema = z.object({
   privacyClass: z.enum(['normal', 'work_neutral', 'sensitive']).optional(),
 });
 export type TaskInput = z.infer<typeof taskInputSchema>;
-export const taskPatchSchema = taskInputSchema.partial();
+export const taskPatchSchema = patchOf(taskInputSchema);
 
 function deriveStatus(i: Partial<TaskInput>): string {
   if (i.status) return i.status;

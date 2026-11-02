@@ -8,6 +8,7 @@ import { AppError } from '../http';
 import { audit } from './audit';
 import { transitionEvent } from './planning';
 import type { UserContext } from './profile';
+import { patchOf } from '@/lib/patch';
 
 const templateNotFound = () => new AppError('NOT_FOUND', 'Шаблон не найден', 404);
 
@@ -154,7 +155,7 @@ export async function mealPlanForRange(tx: Tx, userId: string, from: LocalDate, 
     where e.user_id = ${userId} and e.local_date between ${from} and ${to}`;
 }
 
-export const mealTemplatePatchSchema = mealTemplateSchema.partial();
+export const mealTemplatePatchSchema = patchOf(mealTemplateSchema);
 
 /** Toggling «включено» keeps the «пример» flag; any content edit makes the template the user's own. */
 export async function patchMealTemplate(tx: Tx, userId: string, id: string, patch: z.infer<typeof mealTemplatePatchSchema>) {

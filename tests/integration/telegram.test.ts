@@ -291,10 +291,14 @@ describe('/work: preview → confirm, stale preview is refreshed (409)', () => {
       select actor, source from plan_versions where user_id = ${alice} order by created_at desc limit 1`);
     expect(v).toEqual({ actor: 'telegram', source: 'extra_work' });
 
-    // an old confirm button does nothing
+    // an old or repeated confirm button does nothing and keeps the result (with its «Отменить») on screen
     const committed = await extraCount();
-    await send(u.callback(ALICE_CHAT, commit1, preview.messageId));
-    expect(tg.lastEdit(ALICE_CHAT)!.text).toMatch(/устарел/);
+    for (const old of [commit1, commit2]) {
+      const again = u.callback(ALICE_CHAT, old, preview.messageId);
+      await send(again);
+      expect(tg.answersFor(again.callback_query!.id)).toEqual([{ id: again.callback_query!.id, text: 'Уже отмечено' }]);
+    }
+    expect(tg.lastEdit(ALICE_CHAT)!.text).toMatch(/План перестроен/);
     expect(await extraCount()).toBe(committed);
 
     // undo from the same chat restores the plan
@@ -552,5 +556,33 @@ describe('disconnect', () => {
     const r = await send(u.text(BOB_CHAT, '/today'));
     expect(r.status).toBe('unpaired');
     expect(tg.lastSent(BOB_CHAT)!.text).toMatch(/не привязан/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('blocking and unblocking the bot', () => {
+  const state = async () =>
+    (await q((tx) => tx<{ notificationEnabled: boolean; blockedAt: Date | null }[]>`
+      select notification_enabled, blocked_at from telegram_connections where chat_id = ${ALICE_CHAT}`))[0];
+  const member = (status: string) => ({
+    update_id: u.nextId(),
+    my_chat_member: { chat: { id: ALICE_CHAT, type: 'private' }, from: { id: ALICE_CHAT }, date: 1_793_000_000, new_chat_member: { status } },
+  });
+
+  it('reminders resume after unblocking, but a deliberate «выкл» stays off', async () => {
+    const before = await state();
+    expect(before).toBeDefined();
+    await q((tx) => tx`update telegram_connections set notification_enabled = true, blocked_at = null where chat_id = ${ALICE_CHAT}`);
+    await send(member('kicked'));
+    expect((await state())!.notificationEnabled).toBe(false);
+    await send(member('member'));
+    expect(await state()).toMatchObject({ notificationEnabled: true, blockedAt: null });
+
+    // switched off on purpose, then blocked and unblocked: stays off
+    await q((tx) => tx`update telegram_connections set notification_enabled = false where chat_id = ${ALICE_CHAT}`);
+    await send(member('kicked'));
+    await send(u.text(ALICE_CHAT, '/start'));
+    expect((await state())!.notificationEnabled).toBe(false);
+    await q((tx) => tx`update telegram_connections set notification_enabled = ${before!.notificationEnabled} where chat_id = ${ALICE_CHAT}`);
   });
 });

@@ -64,6 +64,26 @@ const ANSWER_KINDS: EventKind[] = [
 ];
 const OPEN = new Set(['planned', 'notified', 'snoozed', 'unanswered']);
 
+/**
+ * Extra work that picks up where the main work block ends (starts ≤ 30 min after its end and
+ * runs past it). The day then ends with the extra block, so "Завершил работу?" is not asked
+ * separately — one question at the real end of the working day.
+ */
+export function continuedByExtraWork(
+  work: { startAt: DateTime; endAt: DateTime },
+  events: { kind: string; status: string; startAt: DateTime; endAt: DateTime }[],
+): boolean {
+  return events.some(
+    (e) =>
+      e.kind === 'extra_work' &&
+      e.status !== 'cancelled' &&
+      e.status !== 'skipped' &&
+      e.startAt >= work.startAt &&
+      e.startAt <= work.endAt.plus({ minutes: 30 }) &&
+      e.endAt > work.endAt,
+  );
+}
+
 export interface NowInput {
   now: DateTime;
   tz: string;
@@ -87,7 +107,11 @@ export function computeNow(input: NowInput): NowState {
 
   const next = live.filter((e) => e.startAt > now && e.status !== 'completed').slice(0, 5);
   const pendingDecisions = input.events.filter(
-    (e) => e.endAt <= now && OPEN.has(e.status) && ANSWER_KINDS.includes(e.kind),
+    (e) =>
+      e.endAt <= now &&
+      OPEN.has(e.status) &&
+      ANSWER_KINDS.includes(e.kind) &&
+      !(e.kind === 'work' && continuedByExtraWork(e, input.events)),
   );
 
   const capture: NowAction = { id: 'capture', label: 'Добавить мысль', kind: 'capture', variant: 'secondary' };
@@ -110,7 +134,8 @@ export function computeNow(input: NowInput): NowState {
   if (
     work &&
     !extraNow &&
-    OPEN.has(work.status) &&
+    (OPEN.has(work.status) || work.status === 'started') &&
+    !continuedByExtraWork(work, input.events) &&
     now >= work.endAt.minus({ minutes: 10 }) &&
     now <= work.endAt.plus({ hours: 4 })
   ) {
@@ -128,7 +153,7 @@ export function computeNow(input: NowInput): NowState {
 
   // 2) extra work in progress or just finished
   const extraDue = input.events.find(
-    (e) => e.kind === 'extra_work' && OPEN.has(e.status) && e.endAt <= now && now <= e.endAt.plus({ hours: 2 }),
+    (e) => e.kind === 'extra_work' && (OPEN.has(e.status) || e.status === 'started') && e.endAt <= now && now <= e.endAt.plus({ hours: 2 }),
   );
   if (extraNow) {
     return {

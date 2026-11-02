@@ -237,7 +237,7 @@ export async function computeWeekFacts(tx: Tx, ctx: UserContext, now: DateTime, 
   const workoutDays = [...completedWorkoutEvents.map((e) => e.localDate), ...manual.map((s) => s.localDate)];
 
   // extra work and own projects
-  const extra = evs.filter((e) => e.kind === 'extra_work' && e.status !== 'cancelled');
+  const extra = evs.filter((e) => e.kind === 'extra_work' && !['cancelled', 'skipped'].includes(e.status));
   const extraDays = new Map<string, number>();
   for (const e of extra) extraDays.set(e.localDate, (extraDays.get(e.localDate) ?? 0) + minutesOf(e));
   const projects = evs.filter((e) => e.kind === 'own_project' && !['cancelled', 'skipped', 'rescheduled'].includes(e.status));
@@ -269,29 +269,37 @@ export async function computeWeekFacts(tx: Tx, ctx: UserContext, now: DateTime, 
   }
 
   // reschedule reasons and time shifts: changes of events that were planned for this local week
-  const changes = await tx<{ action: string; reason: string | null; kind: EventKind | null; eventLocalDate: string | null; fromJson: { startAt?: string } | null; toJson: { startAt?: string } | null }[]>`
-    select c.action, c.reason, e.kind, e.local_date as event_local_date, c.from_json, c.to_json
+  const changes = await tx<{ eventId: string | null; action: string; reason: string | null; kind: EventKind | null; eventLocalDate: string | null; fromJson: { startAt?: string } | null; toJson: { startAt?: string } | null }[]>`
+    select c.event_id, c.action, c.reason, e.kind, e.local_date as event_local_date, c.from_json, c.to_json
     from plan_changes c left join schedule_events e on e.id = c.event_id
     where c.user_id = ${uid} and c.action in ('reschedule', 'snooze', 'move')
       and (
         (c.from_json->>'localDate') between ${ws} and ${we}
         or (c.from_json->>'localDate' is null and c.created_at >= ${startJs} and c.created_at < ${endJs})
-      )`;
-  const shiftMap = new Map<EventKind, { count: number; later: number[] }>();
+      )
+    order by c.created_at`;
+  // one entry per event: a lunch snoozed twice is one lunch that moved, by the total shift
+  const perEvent = new Map<string, { kind: EventKind; localDate: string | null; firstFrom: string; lastTo: string }>();
   for (const c of changes) {
-    if (!c.kind || !c.fromJson?.startAt || !c.toJson?.startAt) continue;
-    const from = localTimeOf(c.fromJson.startAt, ctx.tz);
-    const to = localTimeOf(c.toJson.startAt, ctx.tz);
-    const sameDay = localDateOf(c.fromJson.startAt, ctx.tz) === localDateOf(c.toJson.startAt, ctx.tz);
+    if (!c.kind || !c.eventId || !c.fromJson?.startAt || !c.toJson?.startAt) continue;
+    const cur = perEvent.get(c.eventId);
+    if (cur) cur.lastTo = c.toJson.startAt;
+    else perEvent.set(c.eventId, { kind: c.kind, localDate: c.eventLocalDate, firstFrom: c.fromJson.startAt, lastTo: c.toJson.startAt });
+  }
+  const shiftMap = new Map<EventKind, { count: number; later: number[] }>();
+  for (const c of perEvent.values()) {
+    const from = localTimeOf(c.firstFrom, ctx.tz);
+    const to = localTimeOf(c.lastTo, ctx.tz);
+    const sameDay = localDateOf(c.firstFrom, ctx.tz) === localDateOf(c.lastTo, ctx.tz);
     const s = shiftMap.get(c.kind) ?? { count: 0, later: [] };
     s.count++;
     const delta = timeToMinutes(to) - timeToMinutes(from);
-    if (sameDay && delta > 0 && (c.kind !== 'meal_lunch' || ctx.prefs.workDays.includes(isoWeekday(c.eventLocalDate ?? ws)))) s.later.push(delta);
+    if (sameDay && delta > 0 && (c.kind !== 'meal_lunch' || ctx.prefs.workDays.includes(isoWeekday(c.localDate ?? ws)))) s.later.push(delta);
     shiftMap.set(c.kind, s);
   }
-  // a started meal more than 20 min after its planned time also counts as "later"
+  // a started meal more than 20 min after its planned time also counts as "later" (unless already counted as moved)
   for (const e of evs) {
-    if (e.kind !== 'meal_lunch' || !e.actualStart || !ctx.prefs.workDays.includes(isoWeekday(e.localDate))) continue;
+    if (e.kind !== 'meal_lunch' || !e.actualStart || !ctx.prefs.workDays.includes(isoWeekday(e.localDate)) || perEvent.has(e.id)) continue;
     const delta = Math.round((e.actualStart.getTime() - e.startAt.getTime()) / 60000);
     if (delta >= 20) {
       const s = shiftMap.get('meal_lunch') ?? { count: 0, later: [] };

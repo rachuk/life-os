@@ -6,6 +6,7 @@ import { env } from '../env';
 import { AppError, notFound } from '../http';
 import { audit } from './audit';
 import type { UserContext } from './profile';
+import { patchOf } from '@/lib/patch';
 
 /**
  * Rewards (PRD §14): XP for confirmed behaviours + a VIRTUAL wish fund.
@@ -37,7 +38,7 @@ export const rewardsSettingsSchema = z.object({
   weeklyReviewCents: cents(100_000).default(0),
 });
 export type RewardsSettings = z.infer<typeof rewardsSettingsSchema>;
-export const rewardsSettingsPatchSchema = rewardsSettingsSchema.omit({ currency: true }).partial();
+export const rewardsSettingsPatchSchema = patchOf(rewardsSettingsSchema.omit({ currency: true }));
 
 export async function loadRewardsSettings(tx: Tx, userId: string): Promise<RewardsSettings> {
   const [r] = await tx<{ rewardsSettings: unknown }[]>`select rewards_settings from routine_preferences where user_id = ${userId}`;
@@ -449,7 +450,7 @@ export const goalInputSchema = z.object({
   link: link.nullable().optional(),
   notes: z.string().trim().max(1000).nullable().optional(),
 });
-export const goalPatchSchema = goalInputSchema.partial().extend({ status: z.enum(['active', 'archived']).optional() });
+export const goalPatchSchema = patchOf(goalInputSchema).extend({ status: z.enum(['active', 'archived']).optional() });
 
 export interface GoalRow {
   id: string;

@@ -6,9 +6,10 @@ import { inUser, now } from '@/server/context';
 import { audit } from '@/server/services/audit';
 import { reconcileReminders } from '@/server/services/notifications';
 import { loadContext } from '@/server/services/profile';
+import { patchOf } from '@/lib/patch';
 
 const schema = z.object({
-  notifications: notificationPrefsSchema.partial().optional(),
+  notifications: patchOf(notificationPrefsSchema).optional(),
   quietHours: z.object({ start: z.string().refine(isLocalTime), end: z.string().refine(isLocalTime) }).nullable().optional(),
 });
 

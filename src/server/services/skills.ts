@@ -16,6 +16,7 @@ import { AppError, notFound } from '../http';
 import { audit } from './audit';
 import { regenerateFuture } from './planning';
 import { loadContext, type UserContext } from './profile';
+import { patchOf } from '@/lib/patch';
 
 export interface SkillRow {
   id: string;
@@ -46,7 +47,7 @@ export const skillInputSchema = z.object({
   weeklyMinutes: z.number().int().min(0).max(1200).default(60),
   sessionMinutes: z.number().int().min(5).max(180).default(20),
 });
-export const skillPatchSchema = skillInputSchema.partial().omit({ currentLevel: true });
+export const skillPatchSchema = patchOf(skillInputSchema).omit({ currentLevel: true });
 
 /** Maintenance skills get a light weekly slot; paused/done get none. */
 function effectiveWeekly(s: Pick<SkillRow, 'status' | 'weeklyMinutes' | 'sessionMinutes'>): number {
@@ -173,9 +174,21 @@ export async function practiceFromEvent(tx: Tx, userId: string, ev: { id: string
   if (!ev.templateId) return;
   const [s] = await tx<{ id: string }[]>`select id from skills where user_id = ${userId} and template_id = ${ev.templateId}`;
   if (!s) return;
+  // a session left «started» overnight would exceed the 600-minute check and block «Выполнил»
+  const minutes = Math.min(600, Math.max(1, Math.round(ev.minutes)));
   await tx`insert into skill_practice_logs (user_id, skill_id, local_date, minutes, activity, schedule_event_id, source)
-           values (${userId}, ${s.id}, ${ev.localDate}, ${Math.max(1, ev.minutes)}, 'Занятие по плану', ${ev.id}, 'plan')
-           on conflict (schedule_event_id) where schedule_event_id is not null do nothing`;
+           values (${userId}, ${s.id}, ${ev.localDate}, ${minutes}, 'Занятие по плану', ${ev.id}, 'plan')
+           on conflict (schedule_event_id) where schedule_event_id is not null
+           do update set minutes = excluded.minutes, local_date = excluded.local_date`;
+}
+
+/** The planned session was reopened / skipped / cancelled: its practice entry (and its XP) no longer stand. */
+export async function retractPracticeFromEvent(tx: Tx, userId: string, eventId: string): Promise<void> {
+  const logs = await tx<{ id: string }[]>`
+    delete from skill_practice_logs where user_id = ${userId} and schedule_event_id = ${eventId} and source = 'plan' returning id`;
+  if (logs.length) {
+    await tx`delete from xp_events where user_id = ${userId} and source_type = 'skill_practice' and source_id = any(${logs.map((l) => l.id)})`;
+  }
 }
 
 export async function deletePractice(tx: Tx, userId: string, id: string): Promise<void> {

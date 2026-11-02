@@ -584,6 +584,25 @@ export async function transitionEvent(
     }
   }
 
+  // «Закончил» on extra work that continued the main block ends the working day: the main block,
+  // still waiting for its own answer, is closed at its planned end (it was not asked separately).
+  if (updated.kind === 'extra_work' && input.action === 'complete') {
+    const closed = await tx<{ id: string }[]>`
+      update schedule_events w set status = 'completed', status_changed_at = now(), actual_end = w.end_at, revision = w.revision + 1
+      where w.user_id = ${ctx.userId} and w.kind = 'work'
+        and w.status in ('planned', 'notified', 'snoozed', 'unanswered', 'started')
+        and w.start_at <= ${updated.startAt} and w.end_at >= ${updated.startAt}::timestamptz - interval '30 minutes'
+        and w.end_at < ${updated.endAt}
+      returning w.id`;
+    for (const w of closed) {
+      await audit(tx, ctx.userId, 'schedule_event', w.id, 'transition:complete', { via: 'extra_work', extraWorkId: updated.id }, source);
+      await acknowledgeEventNotifications(tx, ctx.userId, w.id, 'complete');
+    }
+  }
+  if (updated.kind === 'skill' && ['reopen', 'skip', 'cancel'].includes(input.action)) {
+    const { retractPracticeFromEvent } = await import('./skills');
+    await retractPracticeFromEvent(tx, ctx.userId, updated.id);
+  }
   if (updated.kind === 'skill' && input.action === 'complete') {
     const { practiceFromEvent } = await import('./skills');
     await practiceFromEvent(tx, ctx.userId, {

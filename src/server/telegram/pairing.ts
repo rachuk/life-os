@@ -120,5 +120,25 @@ export async function setTelegramNotifications(userId: string, enabled: boolean,
 
 /** The user blocked the bot: stop sending (keeps the link so unblocking + /start resumes). */
 export async function markChatBlocked(chatId: number): Promise<void> {
-  await withSystem((tx) => tx`update telegram_connections set notification_enabled = false where chat_id = ${chatId}`);
+  await withSystem((tx) => tx`
+    update telegram_connections
+    set blocked_at = case when notification_enabled then now() else blocked_at end, notification_enabled = false
+    where chat_id = ${chatId}`);
+}
+
+/**
+ * The user unblocked the bot (or sent /start): resume reminders, but only if the block turned them
+ * off — a deliberate «Напоминания выкл» stays off. Returns true when reminders were resumed.
+ */
+export async function resumeIfUnblocked(chatId: number, now: DateTime): Promise<boolean> {
+  const [row] = await withSystem((tx) => tx<{ userId: string }[]>`
+    update telegram_connections set notification_enabled = true, blocked_at = null
+    where chat_id = ${chatId} and is_active and blocked_at is not null
+    returning user_id`);
+  if (!row) return false;
+  await withUser(row.userId, async (tx) => {
+    await audit(tx, row.userId, 'telegram_connection', null, 'notifications_resumed_after_unblock', {}, 'telegram');
+    await reconcileReminders(tx, await loadContext(tx, row.userId), now);
+  });
+  return true;
 }

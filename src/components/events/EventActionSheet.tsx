@@ -208,12 +208,13 @@ function EventActionSheetInner({ event, onClose, initialMode }: { event: UiEvent
           ) : phase === 'current' ? (
             <div className="space-y-3">
               <div className="grid gap-2 sm:grid-cols-2">
-                {event.status !== 'started' ? (
+                {/* extra work is «on» by itself — it only needs «Закончил» */}
+                {event.status !== 'started' && event.kind !== 'extra_work' ? (
                   <Button variant="primary" loading={busy === 'start'} onClick={() => transition('start')}>
                     Начал
                   </Button>
                 ) : null}
-                <Button variant={event.status === 'started' ? 'primary' : 'secondary'} loading={busy === 'complete'} onClick={complete}>
+                <Button variant={event.status === 'started' || event.kind === 'extra_work' ? 'primary' : 'secondary'} loading={busy === 'complete'} onClick={complete}>
                   Выполнил
                 </Button>
                 {['planned', 'notified', 'snoozed'].includes(event.status) ? (

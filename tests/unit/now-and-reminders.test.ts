@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeNow } from '@/domain/planner/now';
+import { computeNow, continuedByExtraWork } from '@/domain/planner/now';
 import { effectiveSpec, inQuietHours, messageKey, remindersForEvent, repeatKey } from '@/domain/notifications/reminders';
 import { localTimeOf } from '@/domain/time';
 import { lisbon, materializeWeek, prefs, TZ } from '../helpers/plan';
@@ -32,6 +32,20 @@ describe('«Сейчас» card (PRD §2.1)', () => {
     const s = nowAt('18:00');
     expect(s.mode).toBe('work_end');
     expect(s.actions.map((a) => a.label)).toEqual(['Закончил', 'Нужно поработать']);
+  });
+
+  it('extra work right after the main block: one question at the real end of the day', () => {
+    const work = tue.find((e) => e.kind === 'work')!;
+    const extra = { ...work, id: 'xw', kind: 'extra_work' as const, title: 'Дополнительная работа', startAt: work.endAt, endAt: work.endAt.plus({ hours: 2 }) };
+    const withExtra = [...tue, extra];
+    expect(continuedByExtraWork(work, withExtra)).toBe(true);
+    // a block later in the evening (after a break > 30 min) is separate work
+    expect(continuedByExtraWork(work, [{ ...extra, startAt: work.endAt.plus({ hours: 2 }), endAt: work.endAt.plus({ hours: 3 }) }])).toBe(false);
+    expect(continuedByExtraWork(work, [{ ...extra, status: 'cancelled' }])).toBe(false);
+    const at = (t: string) => computeNow({ now: lisbon(`2026-11-03T${t}`), tz: TZ, events: withExtra, workoutLeadMinutes: 30, eveningReviewTime: '23:15' });
+    expect(at('18:30').mode).toBe('extra_work');
+    expect(at('20:05').mode).toBe('extra_work_end');
+    expect(at('20:05').pendingDecisions.some((e) => e.kind === 'work')).toBe(false);
   });
 
   it('20:35 with gym at 21:00 — get ready (after work was answered)', () => {

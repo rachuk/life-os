@@ -9,7 +9,7 @@ import { confirmInbox, handleFreeText, handleVoice, rejectInbox } from './captur
 import { cmdDay, cmdHelp, cmdNow, cmdStop, cmdWork, notificationsAction, unlinkAction } from './commands';
 import { cancelExtraWork, commitExtraWork, showDurationChoice, showExtraWorkPreview, undoExtraWork } from './extraWork';
 import { esc, HELP_TEXT, PAIRING_TEXT } from './format';
-import { connectionForChat, consumeLinkToken, markChatBlocked } from './pairing';
+import { connectionForChat, consumeLinkToken, markChatBlocked, resumeIfUnblocked } from './pairing';
 import { choosePurpose, handleAwaitedValue, handleIncomingImage, mealAction, photoValueAction } from './photos';
 import { claimButton, edit, reply, type ChatSession } from './session';
 import { getPending, setPending } from './state';
@@ -90,6 +90,7 @@ export async function handleUpdate(raw: unknown, deps: Partial<HandlerDeps> = {}
     if (update.my_chat_member) {
       const st = update.my_chat_member.new_chat_member?.status;
       if (st === 'kicked' || st === 'left') await markChatBlocked(chatId);
+      else if (st === 'member') await resumeIfUnblocked(chatId, (deps.now ?? clockNow)());
       await finishUpdate(eventId, 'processed', { route: `member:${st ?? '?'}` });
       return { status: 'processed', route: 'my_chat_member' };
     }
@@ -169,6 +170,10 @@ async function handleMessage(s: ChatSession, msg: TgMessage): Promise<string> {
     const cmd = text.split(/\s+/)[0]!.replace(/@\w+$/, '').toLowerCase();
     switch (cmd) {
       case '/start':
+        // after unblocking the bot: reminders come back (only if the block had turned them off)
+        if (await resumeIfUnblocked(s.chatId, s.now)) await s.client.sendMessage(s.chatId, 'С возвращением! Напоминания в Telegram снова включены.');
+        await cmdHelp(s);
+        break;
       case '/help':
         await cmdHelp(s);
         break;
@@ -310,8 +315,8 @@ async function handleCallback(s: ChatSession, cq: TgCallbackQuery, answer: (t?: 
     }
     case 'xwc':
       if (!p1) break;
-      await answer('Применяю…');
-      await commitExtraWork(s, p1, messageId);
+      // one-shot: a double tap must neither book the block twice nor replace the result with "устарел"
+      await once(() => commitExtraWork(s, p1, messageId), 'Применяю…');
       return 'cb:xw_commit';
     case 'xwx':
       if (!p1) break;

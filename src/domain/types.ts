@@ -46,6 +46,11 @@ export const ACTIVE_STATUSES: EventStatus[] = ['planned', 'notified', 'snoozed',
 /** Statuses for which reminders may still be sent. */
 export const REMINDABLE_STATUSES: EventStatus[] = ['planned', 'notified', 'snoozed'];
 
+/** Work blocks only ask at their end («Закончил?»), so a started one still gets that question. */
+export function isRemindable(kind: EventKind, status: EventStatus): boolean {
+  return REMINDABLE_STATUSES.includes(status) || (status === 'started' && (kind === 'work' || kind === 'extra_work'));
+}
+
 export const KIND_LABELS: Record<EventKind, string> = {
   work: 'Работа',
   extra_work: 'Дополнительная работа',

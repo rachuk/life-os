@@ -11,7 +11,7 @@ import { assertAIBudget, recordAIUsage } from '../ai/budget';
 import { audit } from './audit';
 import { addMeasurement } from './health';
 import { logMeal } from './meals';
-import { createManualEvent, loadEventRows, transitionEvent } from './planning';
+import { createManualEvent, ensureMaterialized, loadEventRows, transitionEvent } from './planning';
 import { loadContext, type UserContext } from './profile';
 import { addShoppingItem } from './shopping';
 import { createTask } from './tasks';
@@ -207,6 +207,9 @@ export async function confirmInboxItem(tx: Tx, ctx: UserContext, now: DateTime, 
         if (!a.dateLocal) throw new AppError('DATE_REQUIRED', `Укажи день для «${a.title}»`, 422, { index: p.index });
         const time = a.timeLocal ?? ctx.prefs.gymStart;
         const ws = weekStartOf(a.dateLocal);
+        // build that week first: otherwise its weekly quota would be added on top of this workout later
+        const today = localDateOf(now, ctx.tz);
+        if (addDays(ws, 6) >= today) await ensureMaterialized(tx, ctx, now, ws > today ? ws : today, addDays(ws, 6));
         const rows = await loadEventRows(tx, ctx.userId, zoned(ws, '00:00', ctx.tz), zoned(addDays(ws, 7), '00:00', ctx.tz));
         // move an open workout of that week (keeps the weekly quota intact) or add a new one
         const open = rows

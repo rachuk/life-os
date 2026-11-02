@@ -1,3 +1,4 @@
+import { currentLimit } from '@/server/services/habitChange';
 import { describe, expect, it } from 'vitest';
 import {
   baselineStatus,
@@ -47,6 +48,10 @@ describe('baseline and gradual limit', () => {
     expect(scheduledLimit(11, '2026-11-09', '2026-11-15', 1)).toBe(11);
     expect(scheduledLimit(11, '2026-11-09', '2026-11-16', 1)).toBe(10);
     expect(scheduledLimit(2, '2026-11-09', '2026-12-31', 1)).toBe(0);
+    // observation days before the plan started had no limit (not "over the limit" in reviews)
+    const plan = { phase: 'reducing', direction: 'reduce', quitDate: null, dailyLimit: 11, limitSetOn: '2026-11-09', stepPerWeek: 1 } as unknown as Parameters<typeof currentLimit>[0];
+    expect(currentLimit(plan, '2026-11-08')).toBeNull();
+    expect(currentLimit(plan, '2026-11-09')).toBe(11);
   });
 
   it('a slip is just "over" for that day — unknown is not a failure', () => {

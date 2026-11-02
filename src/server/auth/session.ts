@@ -5,7 +5,13 @@ import { verifyPassword } from './password';
 
 export const SESSION_COOKIE = 'lifeos_session';
 const SESSION_DAYS = 30;
+/** Failed logins allowed per client (IP) in the window. */
 const MAX_FAILURES = 8;
+/**
+ * Failed logins allowed per email across all clients. Higher than per client, so a stranger who
+ * knows the email cannot lock the owner out with a handful of tries, yet guessing stays far too slow.
+ */
+const MAX_EMAIL_FAILURES = 40;
 const WINDOW_MINUTES = 15;
 
 export interface SessionUser {
@@ -56,12 +62,17 @@ export type LoginResult =
 
 /** Password login with throttling per email and per client key (PRD §19.1). */
 export async function login(email: string, password: string, clientKey: string, userAgent: string | null): Promise<LoginResult> {
-  const keys = [`email:${email.trim().toLowerCase()}`, `client:${clientKey}`];
+  const emailKey = `email:${email.trim().toLowerCase()}`;
+  const clientKeyFull = `client:${clientKey}`;
+  const keys = [emailKey, clientKeyFull];
+  // each key has its own budget (one attempt writes a row for both keys)
   const limited = await withSystem(async (tx) => {
-    const [r] = await tx<{ n: number }[]>`
-      select count(*)::int as n from auth_attempts
-      where key = any(${keys}) and success = false and created_at > now() - make_interval(mins => ${WINDOW_MINUTES})`;
-    return r!.n >= MAX_FAILURES;
+    const rows = await tx<{ key: string; n: number }[]>`
+      select key, count(*)::int as n from auth_attempts
+      where key = any(${keys}) and success = false and created_at > now() - make_interval(mins => ${WINDOW_MINUTES})
+      group by key`;
+    const n = (k: string) => rows.find((r) => r.key === k)?.n ?? 0;
+    return n(clientKeyFull) >= MAX_FAILURES || n(emailKey) >= MAX_EMAIL_FAILURES;
   });
   if (limited) return { ok: false, code: 'RATE_LIMITED', message: 'Слишком много попыток. Подожди 15 минут.' };
 

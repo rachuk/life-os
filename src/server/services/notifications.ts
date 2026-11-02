@@ -9,8 +9,9 @@ import {
   type Channel,
   type ReminderMessage,
 } from '@/domain/notifications/reminders';
+import { continuedByExtraWork } from '@/domain/planner/now';
 import type { ReminderSpec } from '@/domain/planner/prefs';
-import { REMINDABLE_STATUSES, type EventKind, type EventStatus } from '@/domain/types';
+import { isRemindable, type EventKind, type EventStatus } from '@/domain/types';
 import { localDateOf } from '@/domain/time';
 import type { Tx } from '../db';
 import { withSystem, withUser } from '../db';
@@ -68,9 +69,30 @@ export async function reconcileReminders(
         from schedule_events e left join schedule_templates t on t.id = e.template_id
         where e.user_id = ${ctx.userId} and e.start_at < ${horizon.toJSDate()} and e.end_at > ${now.minus({ hours: 2 }).toJSDate()}`;
 
+  // a work block followed directly by extra work gets no separate "Завершил работу?" (and no repeat)
+  const extras = events.some((e) => e.kind === 'work')
+    ? (
+        await tx<{ kind: string; status: string; startAt: Date; endAt: Date }[]>`
+          select kind, status, start_at, end_at from schedule_events
+          where user_id = ${ctx.userId} and kind = 'extra_work' and status not in ('cancelled', 'skipped')
+            and end_at > ${now.minus({ hours: 12 }).toJSDate()} and start_at < ${horizon.plus({ hours: 12 }).toJSDate()}`
+      ).map((x) => ({ ...x, startAt: DateTime.fromJSDate(x.startAt, { zone: 'utc' }), endAt: DateTime.fromJSDate(x.endAt, { zone: 'utc' }) }))
+    : [];
+  const continued = new Set(
+    events
+      .filter(
+        (e) =>
+          e.kind === 'work' &&
+          continuedByExtraWork({ startAt: DateTime.fromJSDate(e.startAt, { zone: 'utc' }), endAt: DateTime.fromJSDate(e.endAt, { zone: 'utc' }) }, extras),
+      )
+      .map((e) => e.id),
+  );
+  const remindable = (e: ReminderEventRow) => isRemindable(e.kind, e.status) && !continued.has(e.id);
+
   const desired = new Map<string, { eventId: string; channel: Channel; type: string; kind: string; at: DateTime; title: string }>();
+  const keep = new Set<string>();
   for (const ev of events) {
-    if (!REMINDABLE_STATUSES.includes(ev.status)) continue;
+    if (!remindable(ev)) continue;
     const spec = effectiveSpec(ev.kind, ev.templateReminder);
     const planned = remindersForEvent(
       {
@@ -83,11 +105,16 @@ export async function reconcileReminders(
       spec,
     );
     for (const r of planned) {
-      if (r.scheduledAt < now.minus({ minutes: 1 }) || r.scheduledAt > horizon) continue;
+      if (r.scheduledAt > horizon) continue;
       if (r.kind !== 'review' && inQuietHours(r.scheduledAt, ctx.tz, ctx.profile.quietHours)) continue;
       for (const ch of channels) {
         const key = messageKey({ userId: ctx.userId, eventId: ev.id, reminderType: r.reminderType, scheduledAt: r.scheduledAt, channel: ch });
-        desired.set(key, { eventId: ev.id, channel: ch, type: r.reminderType, kind: r.kind, at: r.scheduledAt, title: ev.title });
+        // still part of the plan: a due row waiting for a retry (or for the worker after a restart) is kept
+        keep.add(key);
+        // only reminders that are not in the past are (re)created
+        if (r.scheduledAt >= now.minus({ minutes: 1 })) {
+          desired.set(key, { eventId: ev.id, channel: ch, type: r.reminderType, kind: r.kind, at: r.scheduledAt, title: ev.title });
+        }
       }
     }
   }
@@ -99,7 +126,7 @@ export async function reconcileReminders(
       select id, message_key, reminder_type, payload_json from notification_outbox
       where user_id = ${ctx.userId} and status = 'scheduled' and event_id = any(${eventIds})`;
     const stale = existing.filter((r) =>
-      r.reminderType === 'repeat' ? !r.payloadJson?.baseKey || !desiredBaseSent(r.payloadJson.baseKey, desired, events) : !desired.has(r.messageKey),
+      r.reminderType === 'repeat' ? !r.payloadJson?.baseKey || !events.some((e) => remindable(e) && r.payloadJson.baseKey!.includes(e.id)) : !keep.has(r.messageKey),
     );
     if (stale.length) {
       await tx`update notification_outbox set status = 'cancelled', cancel_reason = 'plan_changed'
@@ -121,15 +148,13 @@ export async function reconcileReminders(
 }
 
 /** A scheduled repeat stays valid only while its event is still remindable. */
-function desiredBaseSent(_baseKey: string, _desired: Map<string, unknown>, events: ReminderEventRow[]): boolean {
-  return events.some((e) => REMINDABLE_STATUSES.includes(e.status) && _baseKey.includes(e.id));
-}
-
 export async function acknowledgeEventNotifications(tx: Tx, userId: string, eventId: string, action: string): Promise<void> {
   await tx`update notification_outbox set status = 'acknowledged', acknowledged_at = now()
            where user_id = ${userId} and event_id = ${eventId} and status in ('sent', 'delivered_unknown')`;
+  // «Начал» does not answer «Закончил?»: the end-of-block question stays scheduled
   await tx`update notification_outbox set status = 'cancelled', cancel_reason = ${`answered:${action}`}
-           where user_id = ${userId} and event_id = ${eventId} and status = 'scheduled'`;
+           where user_id = ${userId} and event_id = ${eventId} and status = 'scheduled'
+             and not (${action} = 'start' and reminder_type = 'end')`;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,8 +294,46 @@ export async function processDueNotifications(now: DateTime, senders: ChannelSen
   return report;
 }
 
+/** Does this outbox row (or, for a repeat, its base reminder) still correspond to the event's current times? */
+async function stillMatchesPlan(
+  tx: Tx,
+  row: DueRow,
+  ev: { id: string; kind: EventKind; title: string; startAt: Date; endAt: Date; templateReminder: ReminderSpec | null },
+): Promise<boolean> {
+  let type = row.reminderType;
+  let at = DateTime.fromJSDate(row.scheduledAt, { zone: 'utc' });
+  if (type === 'repeat') {
+    const baseKey = (row.payloadJson as { baseKey?: string }).baseKey;
+    if (!baseKey) return true;
+    const [base] = await tx<{ reminderType: string; scheduledAt: Date }[]>`
+      select reminder_type, scheduled_at from notification_outbox where user_id = ${row.userId} and message_key = ${baseKey}`;
+    if (!base) return true;
+    type = base.reminderType;
+    at = DateTime.fromJSDate(base.scheduledAt, { zone: 'utc' });
+  }
+  const planned = remindersForEvent(
+    {
+      id: ev.id,
+      kind: ev.kind,
+      title: ev.title,
+      startAt: DateTime.fromJSDate(ev.startAt, { zone: 'utc' }),
+      endAt: DateTime.fromJSDate(ev.endAt, { zone: 'utc' }),
+    },
+    effectiveSpec(ev.kind, ev.templateReminder),
+  );
+  return planned.some((p) => p.reminderType === type && Math.abs(p.scheduledAt.diff(at, 'minutes').minutes) < 1);
+}
+
 async function processOne(row: DueRow, now: DateTime, senders: ChannelSenders): Promise<'sent' | 'failed' | 'skipped' | 'cancelled'> {
   return withUser(row.userId, async (tx) => {
+    // lock order event → outbox, the same as an answer (transitionEvent → acknowledge): no deadlock
+    let ev: { id: string; kind: EventKind; title: string; status: EventStatus; startAt: Date; endAt: Date; templateReminder: ReminderSpec | null } | undefined;
+    if (row.eventId) {
+      [ev] = await tx<NonNullable<typeof ev>[]>`
+        select e.id, e.kind, e.title, e.status, e.start_at, e.end_at, t.reminder as template_reminder
+        from schedule_events e left join schedule_templates t on t.id = e.template_id
+        where e.id = ${row.eventId} for update of e`;
+    }
     const [locked] = await tx<{ status: string }[]>`
       select status from notification_outbox where id = ${row.id} for update skip locked`;
     if (!locked || locked.status !== 'scheduled') return 'skipped';
@@ -281,11 +344,14 @@ async function processOne(row: DueRow, now: DateTime, senders: ChannelSenders): 
                  last_error = ${extra.error ?? null} where id = ${row.id}`;
     };
 
-    let ev: { id: string; kind: EventKind; title: string; status: EventStatus; startAt: Date; endAt: Date } | undefined;
     if (row.eventId) {
-      [ev] = await tx<NonNullable<typeof ev>[]>`select id, kind, title, status, start_at, end_at from schedule_events where id = ${row.eventId}`;
-      if (!ev || !REMINDABLE_STATUSES.includes(ev.status)) {
+      if (!ev || !isRemindable(ev.kind, ev.status)) {
         await setStatus('cancelled', { reason: 'answered_or_removed' });
+        return 'cancelled';
+      }
+      // the event moved (e.g. to another day, beyond the reconcile window): this reminder is for the old time
+      if (!(await stillMatchesPlan(tx, row, ev))) {
+        await setStatus('cancelled', { reason: 'plan_changed' });
         return 'cancelled';
       }
     }
@@ -404,8 +470,9 @@ async function processOne(row: DueRow, now: DateTime, senders: ChannelSenders): 
     await tx`update notification_outbox set status = ${status}, sent_at = ${now.toJSDate()}, attempts = attempts + 1,
                provider_message_id = ${providerId}, payload_json = ${tx.json({ ...row.payloadJson, ...msg } as never)}
              where id = ${row.id}`;
-    if (ev && ev.status === 'planned') {
-      await tx`update schedule_events set status = 'notified', status_changed_at = now() where id = ${ev.id} and status = 'planned'`;
+    if (ev && (ev.status === 'planned' || ev.status === 'snoozed')) {
+      // a snoozed event that was reminded again is waiting for an answer like any other (→ unanswered later)
+      await tx`update schedule_events set status = 'notified', status_changed_at = now() where id = ${ev.id} and status in ('planned', 'snoozed')`;
     }
     // one repeat for important reminders (NT-02); cancelled automatically when answered (NT-03)
     if (ev && row.kind === 'important' && row.reminderType !== 'repeat' && ctx.prefs.notifications.maxRepeats > 0) {

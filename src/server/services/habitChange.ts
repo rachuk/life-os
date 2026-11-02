@@ -138,6 +138,7 @@ export function currentLimit(p: ProgramRow, today: LocalDate): number | null {
   if (p.phase === 'paused' || p.phase === 'baseline') return null;
   if (p.direction === 'quit' && p.quitDate && today >= p.quitDate) return 0;
   if (p.dailyLimit === null || !p.limitSetOn) return null;
+  if (today < p.limitSetOn) return null; // observation days before the plan had no limit
   return scheduledLimit(p.dailyLimit, p.limitSetOn, today, p.stepPerWeek);
 }
 
