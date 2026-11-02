@@ -31,6 +31,7 @@ tests/unit, tests/integration (real Postgres), tests/e2e (Playwright)
 - New user tables: `user_id uuid not null default app.current_user_id() references users(id) on delete cascade`, enable RLS, policy `user_id = app.current_user_id()`, grant to `lifeos_user` (see 0001_init.sql loop).
 - Never log user content or secrets. Errors → `AppError(code, russianMessage, status, details?)`; route wrapper `userRoute` returns `{code, message, fieldErrors?, correlationId?}`.
 - Mutating API routes are same-origin only (checked in `userRoute`). Validate all input with zod.
+- PATCH schemas: `patchOf(schema)` from `src/lib/patch.ts`, **never `.partial()`** — zod 4 keeps `.default()` in partials and would overwrite fields the client didn't send.
 
 ## Time
 - Store instants as timestamptz (UTC); interpret with the user's IANA zone (`ctx.tz`). Use helpers in `src/domain/time.ts`
