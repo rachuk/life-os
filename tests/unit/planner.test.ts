@@ -207,3 +207,21 @@ describe('overnight sleep', () => {
     expect(sleep.map((s) => local(s))).toContain('2026-11-02 00:00–08:00');
   });
 });
+
+describe('extra work at night', () => {
+  it('during sleep: an honest «время сна» conflict instead of a confusing limit', () => {
+    const { events } = materializeWeek(prefs(), '2026-11-03', '2026-11-04', lisbon('2026-11-03T08:00'));
+    const p = previewExtraWork(
+      { date: '2026-11-04', startMode: 'now', durationMinutes: 60 },
+      {
+        now: lisbon('2026-11-04T02:05'),
+        tz: TZ,
+        prefs: { workDays: [1, 2, 3, 4, 5], workStart: '09:00', workEnd: '18:00', bedTime: '00:00', overtimeWarnMinutes: 300, gymTravelMinutes: null },
+        events,
+      },
+    );
+    expect(p.canCommit).toBe(false);
+    expect(p.conflicts[0]?.code).toBe('IN_SLEEP');
+    expect(p.conflicts[0]?.message).toMatch(/до 08:00/);
+  });
+});

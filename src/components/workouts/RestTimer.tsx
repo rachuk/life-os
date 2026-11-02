@@ -74,35 +74,24 @@ export function RestTimer({ ref }: { ref?: Ref<RestTimerHandle> }) {
 
   return (
     <div className={cn('rounded-2xl border border-border bg-surface p-3', done && 'border-accent')}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Timer className="size-4 text-muted" />
-          <span className="text-sm font-medium">Отдых</span>
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1.5 text-sm font-medium">
+            <Timer className="size-4 text-muted" aria-hidden="true" />
+            Отдых
+          </p>
+          <p className="text-xs text-muted">работает, пока экран открыт</p>
         </div>
-        <span className={cn('tabular text-2xl font-semibold', !running && !done && 'text-faint')} aria-live="polite" aria-atomic="true">
+        <span className={cn('tabular text-2xl font-semibold', !running && !done && 'text-muted')} aria-live="polite" aria-atomic="true">
           {running ? `${mm}:${ss}` : done ? 'Можно!' : `${Math.floor(preset / 60)}:${String(preset % 60).padStart(2, '0')}`}
         </span>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {PRESETS.map((p) => (
-          <button
-            key={p}
-            type="button"
-            aria-pressed={preset === p}
-            onClick={() => setPreset(p)}
-            className={cn('min-h-11 rounded-xl border px-3 text-sm', preset === p ? 'border-accent bg-accent-soft text-accent' : 'border-border hover:bg-surface-2')}
-          >
-            {p < 120 ? `${p} с` : `${p / 60} мин`}
-          </button>
-        ))}
         {running ? (
-          <Button variant="ghost" onClick={() => setEndsAt(null)} className="ml-auto">
+          <Button variant="ghost" onClick={() => setEndsAt(null)}>
             Стоп
           </Button>
         ) : (
           <Button
             variant="soft"
-            className="ml-auto"
             onClick={() => {
               fired.current = false;
               setDone(false);
@@ -114,7 +103,19 @@ export function RestTimer({ ref }: { ref?: Ref<RestTimerHandle> }) {
           </Button>
         )}
       </div>
-      <p className="mt-1.5 text-xs text-muted">Таймер работает, пока экран открыт. Фоновых напоминаний на iPhone без приложения не обещаем.</p>
+      <div className="mt-2 grid grid-cols-4 gap-1.5" role="group" aria-label="Длительность отдыха">
+        {PRESETS.map((p) => (
+          <button
+            key={p}
+            type="button"
+            aria-pressed={preset === p}
+            onClick={() => setPreset(p)}
+            className={cn('min-h-11 rounded-xl border px-2 text-sm', preset === p ? 'border-accent bg-accent-soft text-accent' : 'border-border hover:bg-surface-2')}
+          >
+            {p < 120 ? `${p} с` : `${p / 60} мин`}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

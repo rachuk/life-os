@@ -17,13 +17,15 @@ describe('«Сейчас» card (PRD §2.1)', () => {
     expect(s.mode).toBe('work');
     expect(s.subline).toMatch(/перекус|обед/);
     expect(s.actions.map((a) => a.label)).toContain('Добавить мысль');
+    expect(s.actions.every((a) => a.variant === 'secondary')).toBe(true); // calm during work
   });
 
-  it('13:05 — time for lunch with Начал / +15 минут / Не могу сейчас', () => {
+  it('13:05 — time for lunch: one-tap «Поел», +15 минут, Не могу сейчас', () => {
     const s = nowAt('13:05');
     expect(s.mode).toBe('meal');
     expect(s.headline).toBe('Пора на обед');
-    expect(s.actions.map((a) => a.label)).toEqual(['Начал', '+15 минут', 'Не могу сейчас']);
+    expect(s.actions.map((a) => a.label)).toEqual(['Поел', '+15 минут', 'Не могу сейчас']);
+    expect(s.actions[0]!.variant).toBe('primary');
   });
 
   it('18:00 — asks whether work is finished, offers extra work', () => {

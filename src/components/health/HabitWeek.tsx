@@ -1,5 +1,5 @@
 'use client';
-import { Check, Minus, Settings2, X } from 'lucide-react';
+import { Check, Settings2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { formatDateRu, isoWeekday, weekdayShort } from '@/domain/time';
@@ -122,9 +122,7 @@ export function HabitWeek({ habits, checkins, days, today }: { habits: HabitDef[
                 </div>
               </div>
             ))}
-            <p className="flex items-center gap-1.5 text-xs text-muted">
-              <Minus className="size-3" /> «?» — ответа нет, это не провал. Еда и тренировки отмечаются в событиях, вода, шаги и сон — выше.
-            </p>
+            <p className="text-xs text-muted">«?» — ответа нет, это не провал.</p>
           </div>
         ) : (
           <EmptyState title="Ежедневные правила выключены">Их можно включить в настройке привычек.</EmptyState>
@@ -180,7 +178,7 @@ function HabitSettings({ open, onClose, habits }: { open: boolean; onClose: () =
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const steps = habits.find((h) => h.key === 'steps');
-  const [stepsTarget, setStepsTarget] = useState(steps?.target ? String(steps.target) : '');
+  const [stepsTarget, setStepsTarget] = useState(steps?.target ? new Intl.NumberFormat('ru-RU').format(steps.target) : '');
 
   async function patch(h: HabitDef, enabled: boolean, target?: number | null) {
     setBusy(h.id);
@@ -208,7 +206,7 @@ function HabitSettings({ open, onClose, habits }: { open: boolean; onClose: () =
           className="mt-4 flex items-end gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const v = Number(stepsTarget);
+            const v = Number(stepsTarget.replace(/\s/g, ''));
             if (!Number.isInteger(v) || v <= 0) return toast.error('Цель шагов — целое число');
             void patch(steps, steps.enabled, v).then(() => toast.ok('Цель сохранена'));
           }}

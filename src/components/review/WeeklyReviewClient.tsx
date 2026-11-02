@@ -1,8 +1,8 @@
 'use client';
-import { ChevronLeft, ChevronRight, RefreshCw, ScrollText, ShoppingBasket, Sparkles } from 'lucide-react';
+import { CalendarClock, ChevronLeft, ChevronRight, RefreshCw, ScrollText, ShoppingBasket, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { WeekFacts, WeeklyReviewView } from '@/server/services/weeklyReview';
 import { formatDateRu, formatDuration } from '@/domain/time';
 import { api, errorMessage } from '@/lib/api';
@@ -22,7 +22,17 @@ type ProposalView = Review['proposals'][number];
 const dayMonth = (d: string) => formatDateRu(d).split(', ')[1] ?? d;
 const NO_DATA = 'нет данных';
 
-export function WeeklyReviewClient({ view }: { view: WeeklyReviewView }) {
+/** Two columns from 1024px so lines stay readable; a single stacked column on phones. */
+function Columns({ left, right }: { left: ReactNode; right: ReactNode }) {
+  return (
+    <div className="space-y-5 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0">
+      <div className="min-w-0 space-y-5">{left}</div>
+      <div className="min-w-0 space-y-5">{right}</div>
+    </div>
+  );
+}
+
+export function WeeklyReviewClient({ view, extra }: { view: WeeklyReviewView; extra?: ReactNode }) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
@@ -42,67 +52,123 @@ export function WeeklyReviewClient({ view }: { view: WeeklyReviewView }) {
     }
   }
 
-  return (
-    <div className="space-y-5">
-      <header className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <Link href={`/review/week?week=${view.prevWeek}`} aria-label="Предыдущая неделя" className="grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2">
-            <ChevronLeft className="size-5" />
-          </Link>
-          <div className="min-w-0 text-center">
-            <h1 className="text-2xl font-semibold leading-tight">Обзор недели</h1>
-            <p className="tabular text-sm text-muted">
-              {dayMonth(view.weekStart)} – {dayMonth(view.weekEnd)}
-              {view.isCurrentWeek ? ' · текущая' : ''}
-            </p>
-          </div>
-          {view.nextWeek ? (
-            <Link href={`/review/week?week=${view.nextWeek}`} aria-label="Следующая неделя" className="grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2">
-              <ChevronRight className="size-5" />
-            </Link>
-          ) : (
-            <span className="size-11" aria-hidden="true" />
-          )}
-        </div>
-        <p className="text-center text-sm text-muted">Факты считает сервер по отметкам. «Нет данных» — это не ноль и не провал.</p>
-      </header>
+  const firstReview = formatDateRu(view.firstReviewDate).toLowerCase();
+  const beforeAccount = view.weekStart < view.firstWeek;
+  const firstWeekRunning = view.weekStart === view.firstWeek && view.today < view.firstReviewDate;
 
-      {error ? <Notice tone="danger">{error}</Notice> : null}
-
-      {view.review ? (
-        <ReviewBody key={`${view.review.generatedAt}:${view.review.status}`} view={view} review={view.review} onRegenerate={generate} regenerating={busy === 'generate'} />
-      ) : (
-        <Card>
-          <EmptyState
-            title="Обзор этой недели ещё не собран"
-            icon={<ScrollText className="size-6" />}
-            action={
-              <Button variant="primary" size="lg" loading={busy === 'generate'} onClick={generate}>
-                Собрать обзор
-              </Button>
-            }
-          >
-            Посчитаем, что было запланировано и что отмечено, найдём 2–3 закономерности и предложим 2–3 правки. Ничего не применится без твоего решения.
-            <span className="mt-2 block text-xs">{view.ai.reason}</span>
-          </EmptyState>
-        </Card>
-      )}
-
+  const aside = (
+    <>
       <WeekRewards view={view} />
-
       <Link href="/shopping" className="flex min-h-14 items-center gap-3 rounded-2xl border border-border bg-surface px-4 hover:bg-surface-2">
         <ShoppingBasket className="size-5 text-muted" />
         <span className="flex-1">
           <span className="block text-[15px] font-medium">Покупки и меню на новую неделю</span>
           <span className="block text-xs text-muted">Воскресный список продуктов</span>
         </span>
-        <ChevronRight className="size-4 text-faint" />
+        <ChevronRight className="size-4 text-muted" />
       </Link>
+    </>
+  );
+
+  return (
+    <div className="space-y-5">
+      <header className="flex items-center justify-between gap-2">
+        {view.prevWeek ? (
+          <Link href={`/review/week?week=${view.prevWeek}`} aria-label="Предыдущая неделя" className="grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2">
+            <ChevronLeft className="size-5" />
+          </Link>
+        ) : (
+          <span className="size-11" aria-hidden="true" />
+        )}
+        <div className="min-w-0 text-center">
+          <h1 className="text-2xl font-semibold leading-tight">Обзор недели</h1>
+          <p className="tabular text-sm text-muted">
+            {dayMonth(view.weekStart)} – {dayMonth(view.weekEnd)}
+            {view.isCurrentWeek ? ' · текущая' : ''}
+          </p>
+        </div>
+        {view.nextWeek ? (
+          <Link href={`/review/week?week=${view.nextWeek}`} aria-label="Следующая неделя" className="grid size-11 place-items-center rounded-full text-muted hover:bg-surface-2">
+            <ChevronRight className="size-5" />
+          </Link>
+        ) : (
+          <span className="size-11" aria-hidden="true" />
+        )}
+      </header>
+
+      {error ? <Notice tone="danger">{error}</Notice> : null}
+
+      {view.review ? (
+        <ReviewBody
+          key={`${view.review.generatedAt}:${view.review.status}`}
+          view={view}
+          review={view.review}
+          onRegenerate={generate}
+          regenerating={busy === 'generate'}
+          extra={extra}
+          aside={aside}
+        />
+      ) : (
+        <Columns
+          left={
+            <>
+              <Card>
+                {beforeAccount ? (
+                  <EmptyState
+                    title={`Первый обзор — ${firstReview}`}
+                    icon={<CalendarClock className="size-6" />}
+                    action={
+                      <Link href={`/review/week?week=${view.firstWeek}`} className="inline-flex min-h-11 items-center rounded-xl px-4 text-[15px] font-medium text-accent hover:bg-surface-2">
+                        К первой неделе
+                      </Link>
+                    }
+                  >
+                    На этой неделе Life OS ещё не вёл твой план — обозревать нечего.
+                  </EmptyState>
+                ) : firstWeekRunning ? (
+                  <EmptyState title={`Первый обзор — ${firstReview}`} icon={<CalendarClock className="size-6" />}>
+                    В воскресенье посчитаем, что было запланировано и что отмечено, и предложим 2–3 правки. Ничего не применится без твоего решения.
+                  </EmptyState>
+                ) : (
+                  <EmptyState
+                    title="Обзор этой недели ещё не собран"
+                    icon={<ScrollText className="size-6" />}
+                    action={
+                      <Button variant="primary" size="lg" loading={busy === 'generate'} onClick={generate}>
+                        Собрать обзор
+                      </Button>
+                    }
+                  >
+                    Посчитаем, что было запланировано и что отмечено, найдём 2–3 закономерности и предложим 2–3 правки. Ничего не применится без твоего решения.
+                    <span className="mt-2 block text-xs">{view.ai.reason}</span>
+                  </EmptyState>
+                )}
+              </Card>
+              {extra}
+            </>
+          }
+          right={aside}
+        />
+      )}
     </div>
   );
 }
 
-function ReviewBody({ view, review, onRegenerate, regenerating }: { view: WeeklyReviewView; review: Review; onRegenerate: () => void; regenerating: boolean }) {
+function ReviewBody({
+  view,
+  review,
+  onRegenerate,
+  regenerating,
+  extra,
+  aside,
+}: {
+  view: WeeklyReviewView;
+  review: Review;
+  onRegenerate: () => void;
+  regenerating: boolean;
+  extra?: ReactNode;
+  aside: ReactNode;
+}) {
   const router = useRouter();
   const toast = useToast();
   const f = review.facts;
@@ -135,7 +201,7 @@ function ReviewBody({ view, review, onRegenerate, regenerating }: { view: Weekly
   const submitChoices = () =>
     decide({ decisions: Object.entries(choice).filter(([id]) => open.some((p) => p.id === id)).map(([proposalId, d]) => ({ proposalId, decision: d })) }, 'apply');
 
-  return (
+  const left = (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-sm text-muted">
         <span>
@@ -183,48 +249,63 @@ function ReviewBody({ view, review, onRegenerate, regenerating }: { view: Weekly
       )}
 
       <AiBlock review={review} reason={view.ai.reason} eligible={view.ai.eligible} />
+      {extra}
+    </>
+  );
 
-      <section aria-labelledby="proposals" className="space-y-2">
-        <h2 id="proposals" className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
-          Предложения на следующую неделю
-        </h2>
-        {review.proposals.length ? (
-          <ul className="space-y-2">
-            {review.proposals.map((p) => (
-              <ProposalCard key={p.id} p={p} choice={choice[p.id]} onChoice={(c) => setChoice((x) => ({ ...x, [p.id]: c }))} />
-            ))}
-          </ul>
-        ) : (
-          <Notice>Предложений нет: по фактам этой недели менять распорядок не нужно.</Notice>
-        )}
-        <Card className="space-y-3 p-4">
-          <Textarea
-            label="Что было новым или приятным?"
-            hint="Необязательно. Впечатления тоже часть недели."
-            value={note}
-            maxLength={1000}
-            onChange={(e) => setNote(e.target.value)}
-            className="min-h-16"
-          />
-          <div className="flex flex-col gap-2 sm:flex-row">
-            {open.length ? (
-              <Button variant="primary" size="lg" className="sm:flex-1" disabled={!Object.keys(choice).length} onClick={() => (accepted.length ? setConfirmOpen(true) : submitChoices())} loading={busy === 'apply'}>
-                {accepted.length ? `Принять изменения (${accepted.length})` : 'Сохранить решения'}
-              </Button>
-            ) : (
-              <Button variant="primary" size="lg" className="sm:flex-1" loading={busy === 'finish'} onClick={() => decide({}, 'finish')}>
-                {decided ? 'Сохранить заметку' : 'Завершить обзор'}
-              </Button>
-            )}
-            {open.length ? (
-              <Button loading={busy === 'keep'} onClick={() => decide({ keepAsIs: true }, 'keep')}>
-                Оставить как есть
-              </Button>
-            ) : null}
-          </div>
-          <p className="text-xs text-muted">«Оставить как есть» ничего не меняет в плане. Принятые изменения касаются только будущих событий, которые ты не трогал.</p>
-        </Card>
-      </section>
+  return (
+    <>
+      <Columns
+        left={left}
+        right={
+          <>
+            <section aria-labelledby="proposals" className="space-y-2">
+              <h2 id="proposals" className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
+                Предложения на следующую неделю
+              </h2>
+              {review.proposals.length ? (
+                <ul className="space-y-2">
+                  {review.proposals.map((p) => (
+                    <ProposalCard key={p.id} p={p} choice={choice[p.id]} onChoice={(c) => setChoice((x) => ({ ...x, [p.id]: c }))} />
+                  ))}
+                </ul>
+              ) : (
+                <Notice>Предложений нет: по фактам этой недели менять распорядок не нужно.</Notice>
+              )}
+              <Card className="space-y-3 p-4">
+                <Textarea
+                  label="Что было новым или приятным?"
+                  hint="Необязательно. Впечатления тоже часть недели."
+                  value={note}
+                  maxLength={1000}
+                  onChange={(e) => setNote(e.target.value)}
+                  className="min-h-16"
+                />
+                <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                  {open.length ? (
+                    <Button variant="primary" size="lg" className="sm:flex-1" disabled={!Object.keys(choice).length} onClick={() => (accepted.length ? setConfirmOpen(true) : submitChoices())} loading={busy === 'apply'}>
+                      {accepted.length ? `Принять изменения (${accepted.length})` : 'Сохранить решения'}
+                    </Button>
+                  ) : (
+                    <Button variant="primary" size="lg" className="sm:flex-1" loading={busy === 'finish'} onClick={() => decide({}, 'finish')}>
+                      {decided ? 'Сохранить заметку' : 'Завершить обзор'}
+                    </Button>
+                  )}
+                  {open.length ? (
+                    <Button loading={busy === 'keep'} onClick={() => decide({ keepAsIs: true }, 'keep')}>
+                      Оставить как есть
+                    </Button>
+                  ) : null}
+                </div>
+                {open.length ? (
+                  <p className="text-xs text-muted">«Оставить как есть» ничего не меняет в плане. Принятые изменения касаются только будущих событий, которые ты не трогал.</p>
+                ) : null}
+              </Card>
+            </section>
+            {aside}
+          </>
+        }
+      />
 
       <Sheet
         open={confirmOpen}
@@ -277,7 +358,7 @@ function ProposalCard({ p, choice, onChoice }: { p: ProposalView; choice: 'accep
         </p>
         {!d ? (
           <div className="mt-3 flex gap-2">
-            <Button variant={choice === 'accept' ? 'primary' : 'secondary'} aria-pressed={choice === 'accept'} onClick={() => onChoice('accept')} className="flex-1">
+            <Button variant={choice === 'accept' ? 'soft' : 'secondary'} aria-pressed={choice === 'accept'} onClick={() => onChoice('accept')} className="flex-1">
               Принять
             </Button>
             <Button variant={choice === 'reject' ? 'soft' : 'ghost'} aria-pressed={choice === 'reject'} onClick={() => onChoice('reject')} className="flex-1">
@@ -310,8 +391,8 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
   return (
     <div className="rounded-2xl border border-border bg-surface p-3">
       <div className="text-xs text-muted">{label}</div>
-      <div className={cn('tabular mt-1 text-lg font-semibold', none && 'text-base font-medium text-faint')}>{value}</div>
-      {hint ? <div className="text-xs text-faint">{hint}</div> : null}
+      <div className={cn('tabular mt-1 text-lg font-semibold', none && 'text-base font-medium text-muted')}>{value}</div>
+      {hint ? <div className="text-xs text-muted">{hint}</div> : null}
     </div>
   );
 }
@@ -320,7 +401,7 @@ function FactTiles({ f }: { f: WeekFacts }) {
   const w = f.weight;
   const n = f.notifications;
   return (
-    <section aria-label="Показатели недели" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+    <section aria-label="Показатели недели" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2">
       <Tile
         label="Тренировки"
         value={f.workouts.planned || f.workouts.completed ? `${f.workouts.completed} из ${f.workouts.target}` : NO_DATA}

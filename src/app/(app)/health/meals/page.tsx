@@ -5,7 +5,6 @@ import { inUser, now } from '@/server/context';
 import { addDays, isLocalDate, localDateOf, weekDates, weekStartOf } from '@/domain/time';
 import { listMealLogs, mealsRange, serializeMealLog } from '@/server/services/meals';
 import { Section } from '@/components/ui/Card';
-import { Notice } from '@/components/ui/States';
 import { Catalog, RecentLogs, WeekMenu, type MealLog } from '@/components/meals/MealsClient';
 
 export const metadata = { title: 'Питание' };
@@ -28,12 +27,8 @@ export default async function MealsPage({ searchParams }: { searchParams: Promis
           <ChevronLeft className="size-4" /> Здоровье
         </Link>
         <h1 className="text-2xl font-semibold">Питание</h1>
-        <p className="text-sm text-muted">Регулярная еда без подсчёта калорий: быстрые завтраки, домашние обеды и ужины.</p>
+        <p className="text-sm text-muted">Быстрые завтраки, домашние обеды и ужины — без подсчёта калорий.</p>
       </header>
-
-      <Notice>
-        Шаблоны — примеры, а не медицинское предписание. Аллергии и ограничения не заданы — это не значит, что их нет: проверяй состав сам.
-      </Notice>
 
       <Section title="Меню недели">
         <WeekMenu weekStart={data.weekStart} days={weekDates(data.weekStart)} plan={data.range.plan} templates={data.range.templates} />

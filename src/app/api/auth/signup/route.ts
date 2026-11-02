@@ -16,7 +16,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     assertSameOrigin(req);
-    if (env().SIGNUP_MODE !== 'open') throw new AppError('SIGNUP_CLOSED', 'Регистрация закрыта. Аккаунт создаётся командой pnpm user:create.', 403);
+    if (env().SIGNUP_MODE !== 'open') throw new AppError('SIGNUP_CLOSED', 'Регистрация закрыта. Аккаунт может создать администратор сервера.', 403);
     const input = await readJson(req, schema);
     let user: { id: string };
     try {

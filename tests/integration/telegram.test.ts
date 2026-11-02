@@ -512,7 +512,7 @@ describe('NT-06 / NT-07: webhook security and "not configured"', () => {
     expect((await run(req({ hello: 1 }, 'test-webhook-secret'))).status).toBe(400);
   });
 
-  it('without TELEGRAM_BOT_TOKEN: webhook 503, status "не подключено", web features keep working', async () => {
+  it('without TELEGRAM_BOT_TOKEN: webhook 503, status "не настроен", web features keep working', async () => {
     setEnv({ TELEGRAM_BOT_TOKEN: '' });
     try {
       const res = await webhookRoute(req(u.text(ALICE_CHAT, '/today'), 'test-webhook-secret'));
@@ -520,7 +520,7 @@ describe('NT-06 / NT-07: webhook security and "not configured"', () => {
       expect(((await res.json()) as { code: string }).code).toBe('TELEGRAM_NOT_CONFIGURED');
       const status = integrationStatuses().find((s) => s.key === 'telegram')!;
       expect(status.configured).toBe(false);
-      expect(status.detail).toMatch(/Не подключено/);
+      expect(status.detail).toMatch(/не настроен на сервере/);
       const err = await createLinkToken(alice).catch((e) => e);
       expect(err).toBeInstanceOf(AppError);
       expect((err as AppError).status).toBe(503);

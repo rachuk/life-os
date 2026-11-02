@@ -677,3 +677,40 @@ export async function suggestTaskSlot(
     stepMinutes: 15,
   });
 }
+
+/** Up to 3 concrete alternatives for moving an event: later today, then the next free days (same week first). */
+export async function suggestRescheduleSlots(tx: Tx, ctx: UserContext, now: DateTime, eventId: string) {
+  const ev = await getEventRow(tx, ctx.userId, eventId);
+  const duration = Math.round((ev.endAt.getTime() - ev.startAt.getTime()) / 60000);
+  const today = localDateOf(now, ctx.tz);
+  const isMeal = ev.kind.startsWith('meal') || ev.kind === 'snack';
+  const firstDay = ev.localDate > today ? ev.localDate : today;
+  const days: LocalDate[] = isMeal ? [firstDay] : Array.from({ length: 7 }, (_, i) => addDays(firstDay, i));
+  const out: { date: LocalDate; startTime: string }[] = [];
+  for (const d of days) {
+    if (out.length >= 3) break;
+    await ensureMaterialized(tx, ctx, now, d, d);
+    const { start, end } = dayBoundsUtc(d, ctx.tz);
+    const rows = (await loadEventRows(tx, ctx.userId, start.minus({ hours: 12 }), end.plus({ hours: 12 }))).filter((r) => r.id !== ev.id).map(toPlanEvent);
+    const isWork = ctx.prefs.workDays.includes(isoWeekday(d));
+    const window = ev.flexWindow ?? { earliest: isWork ? ctx.prefs.workEnd : '10:00', latest: '23:00' };
+    const travel = ev.kind === 'workout' ? (ctx.prefs.gymTravelMinutes ?? 0) : 0;
+    const slot = findSlot({
+      date: d,
+      tz: ctx.tz,
+      durationMinutes: duration,
+      earliest: window.earliest,
+      latest: window.latest,
+      preferredStart: d === ev.localDate ? localTimeOf(ev.startAt, ctx.tz) : localTimeOf(ev.startAt, ctx.tz),
+      busy: busyForDay(d, ctx.tz, rows),
+      paddingBeforeMinutes: travel,
+      paddingAfterMinutes: travel,
+      notBefore: now.plus({ minutes: 5 }),
+      stepMinutes: 15,
+    });
+    if (slot && !(d === ev.localDate && slot.startAt.toMillis() === ev.startAt.getTime())) {
+      out.push({ date: d, startTime: localTimeOf(slot.startAt, ctx.tz) });
+    }
+  }
+  return { durationMinutes: duration, slots: out };
+}

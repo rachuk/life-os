@@ -9,7 +9,8 @@ import { api, errorMessage } from '@/lib/api';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Input, Select, Switch } from '@/components/ui/Field';
+import { Chips, Input, Switch } from '@/components/ui/Field';
+import { Sheet } from '@/components/ui/Sheet';
 import { Segmented } from '@/components/ui/Segmented';
 import { EmptyState } from '@/components/ui/States';
 import { useToast } from '@/components/ui/Toaster';
@@ -57,31 +58,97 @@ function usePlan() {
   return { set, busy };
 }
 
-function HomeDish({ date, slot, entry, plan }: { date: string; slot: 'lunch' | 'dinner'; entry: PlanEntry | undefined; plan: ReturnType<typeof usePlan> }) {
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(entry?.description ?? '');
-  const busy = plan.busy === `${date}:${slot}`;
-  if (editing) {
-    return (
-      <form
-        className="flex gap-2"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (await plan.set(date, slot, null, text.trim() || null)) setEditing(false);
-        }}
-      >
-        <Input aria-label={`${MEAL_SLOT_LABELS[slot]}: описание`} autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="например, плов соседки" maxLength={300} className="min-w-0 flex-1" />
-        <Button type="submit" variant="soft" loading={busy}>
-          OK
-        </Button>
-      </form>
-    );
-  }
+const EMPTY_TEXT: Record<'breakfast' | 'lunch' | 'dinner', string> = { breakfast: 'Не выбран', lunch: 'Домашнее блюдо', dinner: 'Домашнее блюдо' };
+const PLACEHOLDER: Record<'breakfast' | 'lunch' | 'dinner', string> = { breakfast: 'например, сырники', lunch: 'например, плов соседки', dinner: 'например, гречка с курицей' };
+type PlanSlot = keyof typeof EMPTY_TEXT;
+
+/** One planned meal: the same row + sheet for breakfast, lunch and dinner — a template or own text. */
+function SlotRow({ date, slot, entry, onOpen }: { date: string; slot: PlanSlot; entry: PlanEntry | undefined; onOpen: () => void }) {
+  const value = entry?.templateTitle ?? entry?.description ?? null;
   return (
-    <button type="button" onClick={() => { setText(entry?.description ?? ''); setEditing(true); }} className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl px-3 text-left hover:bg-surface-2">
-      <span className={cn('min-w-0 truncate text-[15px]', !entry?.description && 'text-muted')}>{entry?.description ?? HOME_DISH}</span>
-      <Pencil className="size-4 shrink-0 text-faint" aria-hidden="true" />
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`${MEAL_SLOT_LABELS[slot]}, ${formatDateRu(date)}: ${value ?? EMPTY_TEXT[slot]} — изменить`}
+      className="flex min-h-12 w-full items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left hover:bg-surface-2"
+    >
+      <span className="min-w-0">
+        <span className="block text-xs text-muted">{MEAL_SLOT_LABELS[slot]}</span>
+        <span className={cn('block truncate text-[15px]', !value && 'text-muted')}>{value ?? EMPTY_TEXT[slot]}</span>
+      </span>
+      <Pencil className="size-4 shrink-0 text-muted" aria-hidden="true" />
     </button>
+  );
+}
+
+function SlotSheet({
+  target,
+  templates,
+  plan,
+  onClose,
+}: {
+  target: { date: string; slot: PlanSlot; entry: PlanEntry | undefined } | null;
+  templates: MealTemplate[];
+  plan: ReturnType<typeof usePlan>;
+  onClose: () => void;
+}) {
+  // initialised on mount; the parent remounts the sheet (key) for every slot it opens
+  const [templateId, setTemplateId] = useState<string | null>(target?.entry?.templateId ?? null);
+  const [text, setText] = useState(target?.entry?.templateId ? '' : (target?.entry?.description ?? ''));
+  if (!target) return null;
+  const { date, slot, entry } = target;
+  const options = templates.filter((t) => t.category === slot && (t.enabled || t.id === entry?.templateId));
+  const busy = plan.busy === `${date}:${slot}`;
+  const save = async (tid: string | null, desc: string | null) => {
+    if (await plan.set(date, slot, tid, desc)) onClose();
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title={`${MEAL_SLOT_LABELS[slot]} · ${formatDateRu(date)}`}
+      description={slot === 'breakfast' ? 'Выбери шаблон или напиши своё.' : 'Без выбора остаётся «домашнее блюдо» — уточнишь по факту.'}
+      footer={
+        <div className="flex gap-2">
+          {entry ? (
+            <Button variant="ghost" disabled={busy} onClick={() => save(null, null)}>
+              Очистить
+            </Button>
+          ) : null}
+          <Button variant="primary" className="flex-1" loading={busy} disabled={!templateId && !text.trim()} onClick={() => save(templateId, templateId ? null : text.trim())}>
+            Сохранить
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {options.length ? (
+          <div>
+            <p className="mb-1.5 text-sm font-medium">Из шаблонов</p>
+            <Chips
+              ariaLabel="Шаблон блюда"
+              options={options.map((t) => ({ value: t.id, label: t.title }))}
+              value={templateId ? [templateId] : []}
+              onChange={(v) => {
+                const next = v[0] === templateId ? null : (v[0] ?? null);
+                setTemplateId(next);
+                if (next) setText('');
+              }}
+            />
+          </div>
+        ) : null}
+        <Input
+          label={options.length ? 'Или своё блюдо' : 'Блюдо'}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            if (e.target.value) setTemplateId(null);
+          }}
+          placeholder={PLACEHOLDER[slot]}
+          maxLength={300}
+        />
+      </div>
+    </Sheet>
   );
 }
 
@@ -89,8 +156,8 @@ function WeekMenu({ weekStart, days, plan: entries, templates }: { weekStart: st
   const plan = usePlan();
   const { today } = useClientUser();
   const [picked, setDay] = useState(today);
+  const [edit, setEdit] = useState<{ date: string; slot: PlanSlot; n: number } | null>(null);
   const day = days.includes(picked) ? picked : days.includes(today) ? today : days[0]!;
-  const breakfasts = templates.filter((t) => t.category === 'breakfast' && t.enabled);
   const get = (d: string, s: MealSlot) => entries.find((e) => e.localDate === d && e.mealSlot === s);
 
   return (
@@ -113,48 +180,28 @@ function WeekMenu({ weekStart, days, plan: entries, templates }: { weekStart: st
         onChange={setDay}
         options={days.map((d) => ({ value: d, label: weekdayShort(isoWeekday(d)) }))}
       />
-      <div className="grid gap-3 lg:grid-cols-2">
-        {days.map((d) => {
-          const b = get(d, 'breakfast');
-          return (
-            <Card key={d} className={cn('p-3', d === today && 'border-accent', d !== day && 'hidden lg:block')}>
-              <p className="mb-2 px-1 text-sm font-semibold">
-                {formatDateRu(d)}
-                {d === today ? <span className="ml-2 text-xs font-normal text-accent">сегодня</span> : null}
-              </p>
-              <dl className="space-y-1.5">
-                <div>
-                  <dt className="px-1 text-xs text-muted">Завтрак</dt>
-                  <dd>
-                    <Select
-                      aria-label={`Завтрак, ${formatDateRu(d)}`}
-                      value={b?.templateId ?? ''}
-                      disabled={plan.busy === `${d}:breakfast`}
-                      onChange={(e) => void plan.set(d, 'breakfast', e.target.value || null, null)}
-                    >
-                      <option value="">— не выбран —</option>
-                      {breakfasts.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.title}
-                        </option>
-                      ))}
-                      {b?.templateId && !breakfasts.some((t) => t.id === b.templateId) ? <option value={b.templateId}>{b.templateTitle ?? 'Шаблон выключен'}</option> : null}
-                    </Select>
-                  </dd>
-                </div>
-                {(['lunch', 'dinner'] as const).map((slot) => (
-                  <div key={slot}>
-                    <dt className="px-1 text-xs text-muted">{MEAL_SLOT_LABELS[slot]}</dt>
-                    <dd>
-                      <HomeDish key={`${d}:${slot}:${get(d, slot)?.description ?? ''}`} date={d} slot={slot} entry={get(d, slot)} plan={plan} />
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </Card>
-          );
-        })}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {days.map((d) => (
+          <Card key={d} className={cn('min-w-0 p-2', d === today && 'border-accent', d !== day && 'hidden lg:block')}>
+            <p className="px-2.5 pb-1 pt-1.5 text-sm font-semibold">
+              {formatDateRu(d)}
+              {d === today ? <span className="ml-2 text-xs font-normal text-accent">сегодня</span> : null}
+            </p>
+            <div className="divide-y divide-border">
+              {(['breakfast', 'lunch', 'dinner'] as const).map((slot) => (
+                <SlotRow key={slot} date={d} slot={slot} entry={get(d, slot)} onOpen={() => setEdit({ date: d, slot, n: (edit?.n ?? 0) + 1 })} />
+              ))}
+            </div>
+          </Card>
+        ))}
       </div>
+      <SlotSheet
+        key={edit ? `${edit.date}:${edit.slot}:${edit.n}` : 'closed'}
+        target={edit ? { date: edit.date, slot: edit.slot, entry: get(edit.date, edit.slot) } : null}
+        templates={templates}
+        plan={plan}
+        onClose={() => setEdit(null)}
+      />
     </div>
   );
 }
@@ -187,7 +234,11 @@ function Catalog({ templates }: { templates: MealTemplate[] }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <p className="min-w-0 flex-1 basis-48 text-xs text-muted">
+          {templates.some((t) => t.isExample) ? 'Готовые шаблоны — примеры для старта: их можно менять и выключать. ' : ''}
+          Это не медицинское предписание — состав проверяй сам.
+        </p>
         <Button variant="soft" icon={<Plus className="size-4" />} onClick={() => openEdit(null)}>
           Свой шаблон
         </Button>
@@ -198,12 +249,9 @@ function Catalog({ templates }: { templates: MealTemplate[] }) {
             <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted">{CATEGORY_LABELS[g.c]}</p>
             <ul className="divide-y divide-border">
               {g.items.map((t) => (
-                <li key={t.id} className="flex items-center gap-2 px-3 py-2">
-                  <button type="button" onClick={() => openEdit(t)} className="min-h-11 min-w-0 flex-1 text-left">
-                    <span className={cn('flex flex-wrap items-center gap-1.5 text-[15px]', !t.enabled && 'text-faint')}>
-                      {t.title}
-                      {t.isExample ? <Badge>пример</Badge> : null}
-                    </span>
+                <li key={t.id} className="flex items-center gap-2 py-1 pl-3 pr-2">
+                  <button type="button" onClick={() => openEdit(t)} className="min-h-11 min-w-0 flex-1 py-1 text-left">
+                    <span className={cn('block text-[15px]', !t.enabled && 'text-muted')}>{t.title}</span>
                     <span className="block truncate text-xs text-muted">
                       {[t.prepMinutes ? `${t.prepMinutes} мин` : null, t.ingredientsJson.map((i) => i.name).join(', ') || 'состав не указан'].filter(Boolean).join(' · ')}
                     </span>

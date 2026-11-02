@@ -80,6 +80,29 @@ export async function logMeal(tx: Tx, ctx: UserContext, now: DateTime, input: Me
   return row;
 }
 
+/**
+ * Undo a meal answer («Отменить» right after «Съел»): the log is deleted and, when its linked event
+ * was settled by that very answer (same transaction ⇒ same timestamp) and no other answer for the
+ * event remains, the event goes back to «запланировано». An event settled some other way is left as is.
+ */
+export async function undoMealLog(tx: Tx, ctx: UserContext, now: DateTime, logId: string, source: 'web' | 'telegram' = 'web') {
+  // decided before the delete, in SQL: timestamps keep microseconds that a JS Date would lose
+  const [log] = await tx<{ id: string; scheduleEventId: string | null; settledByIt: boolean | null }[]>`
+    select l.id, l.schedule_event_id,
+           (e.status = case when l.consumption_status = 'not_eaten' then 'skipped' else 'completed' end
+             and e.status_changed_at = l.created_at
+             and not exists (select 1 from meal_logs o where o.schedule_event_id = l.schedule_event_id and o.user_id = l.user_id and o.id <> l.id)) as settled_by_it
+    from meal_logs l left join schedule_events e on e.id = l.schedule_event_id and e.user_id = l.user_id
+    where l.id = ${logId} and l.user_id = ${ctx.userId}
+    for update of l`;
+  if (!log) throw new AppError('NOT_FOUND', 'Отметка уже удалена', 404);
+  await tx`delete from meal_logs where id = ${log.id} and user_id = ${ctx.userId}`;
+  const reopened = !!(log.scheduleEventId && log.settledByIt);
+  if (reopened) await transitionEvent(tx, ctx, now, log.scheduleEventId!, { action: 'reopen' }, source);
+  await audit(tx, ctx.userId, 'meal_log', log.id, 'deleted', { reopened }, source);
+  return { reopened };
+}
+
 export async function listMealLogs(tx: Tx, userId: string, from: LocalDate, to: LocalDate) {
   return tx<MealLogRow[]>`select * from meal_logs where user_id = ${userId} and local_date between ${from} and ${to} order by eaten_at`;
 }

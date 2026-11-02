@@ -7,6 +7,7 @@ import { api, errorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toaster';
 import { cn } from '@/components/ui/cn';
+import { fmtKg } from './format';
 
 /** Progression is a suggestion only (PRD §10.3): «Принять» changes the next prefill, «Не сейчас» hides it. */
 export function Suggestion({ offer, showName, className }: { offer: ProgressionOffer; showName?: boolean; className?: string }) {
@@ -36,7 +37,7 @@ export function Suggestion({ offer, showName, className }: { offer: ProgressionO
       <div className="mt-2 flex gap-2">
         {offer.weightKg !== null ? (
           <Button size="md" variant="primary" loading={busy === 'accepted'} onClick={() => decide('accepted')}>
-            Принять{offer.weightKg !== null ? ` ${offer.weightKg} кг` : ''}
+            Принять {fmtKg(offer.weightKg)} кг
           </Button>
         ) : null}
         <Button size="md" variant="ghost" loading={busy === 'dismissed'} onClick={() => decide('dismissed')}>

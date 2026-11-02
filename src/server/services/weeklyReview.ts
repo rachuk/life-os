@@ -845,7 +845,7 @@ export interface AiBlock {
 
 export function aiEligibility(ctx: UserContext): { eligible: boolean; reason: string } {
   if (!env().ENABLE_AI_WEEKLY_REVIEW) return { eligible: false, reason: 'ИИ-комментарий к обзору выключен на сервере.' };
-  if (!aiProvider().canParse()) return { eligible: false, reason: 'ИИ не подключён — обзор построен по правилам на сервере.' };
+  if (!aiProvider().canParse()) return { eligible: false, reason: 'ИИ не подключён — обзор строится по правилам.' };
   if (!ctx.privacy.aiTextConsent) return { eligible: false, reason: 'Нет согласия на отправку текста ИИ (Настройки → Приватность). Обзор построен по правилам.' };
   return { eligible: true, reason: 'ИИ получает только агрегированные счётчики недели — без названий дел, заметок и веса.' };
 }
@@ -861,21 +861,45 @@ export function resolveWeekStart(input: string | null | undefined, ctx: UserCont
   return current;
 }
 
-/** Default week for the page: on Mon/Tue the previous week is the one worth reviewing. */
-export function defaultReviewWeek(ctx: UserContext, now: DateTime): LocalDate {
+/**
+ * Monday of the first week Life OS planned for this user: the earlier of the onboarding week and the
+ * first planned day (an account can start with a replayed past week; the night before onboarding —
+ * a lone sleep block — does not count). Weeks before it have nothing to review. Never later than the
+ * current week.
+ */
+export async function accountFirstWeek(tx: Tx, ctx: UserContext, now: DateTime): Promise<LocalDate> {
+  const current = weekStartOf(localDateOf(now, ctx.tz));
+  const [row] = await tx<{ since: Date | null; firstEvent: string | null }[]>`
+    select (select coalesce(onboarded_at, created_at) from profiles where user_id = ${ctx.userId}) as since,
+           (select min(local_date) from schedule_events where user_id = ${ctx.userId} and kind <> 'sleep') as first_event`;
+  const starts = [row?.since ? localDateOf(row.since, ctx.tz) : null, row?.firstEvent ?? null].filter((d): d is LocalDate => !!d);
+  if (!starts.length) return current;
+  const first = weekStartOf(starts.sort()[0]!);
+  return first < current ? first : current;
+}
+
+/** Default week for the page: on Mon/Tue the previous week is the one worth reviewing — unless it predates the account. */
+export function defaultReviewWeek(ctx: UserContext, now: DateTime, firstWeek?: LocalDate): LocalDate {
   const today = localDateOf(now, ctx.tz);
-  return isoWeekday(today) <= 2 ? addDays(weekStartOf(today), -7) : weekStartOf(today);
+  const ws = isoWeekday(today) <= 2 ? addDays(weekStartOf(today), -7) : weekStartOf(today);
+  return firstWeek && ws < firstWeek ? firstWeek : ws;
 }
 
 export async function getWeeklyReview(tx: Tx, ctx: UserContext, now: DateTime, weekStart: LocalDate) {
   const [r] = await tx<ReviewRow[]>`select * from weekly_reviews where user_id = ${ctx.userId} and week_start_date = ${weekStart}`;
-  const currentWeek = weekStartOf(localDateOf(now, ctx.tz));
+  const today = localDateOf(now, ctx.tz);
+  const currentWeek = weekStartOf(today);
+  const firstWeek = await accountFirstWeek(tx, ctx, now);
   const base = {
     weekStart,
     weekEnd: addDays(weekStart, 6),
-    prevWeek: addDays(weekStart, -7),
+    prevWeek: weekStart > firstWeek ? addDays(weekStart, -7) : null,
     nextWeek: addDays(weekStart, 7) <= currentWeek ? addDays(weekStart, 7) : null,
     isCurrentWeek: weekStart === currentWeek,
+    today,
+    /** Monday of the account's first week and its Sunday — the first day a full weekly review makes sense. */
+    firstWeek,
+    firstReviewDate: addDays(firstWeek, 6),
     ai: aiEligibility(ctx),
     rewards: await weekRewards(tx, ctx, weekStart),
   };

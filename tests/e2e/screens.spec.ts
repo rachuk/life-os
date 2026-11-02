@@ -35,11 +35,11 @@ test('all main screens render without errors or horizontal overflow', async ({ p
   expect(errors, errors.join('\n')).toEqual([]);
 });
 
-test('NT-07: without a Telegram token the settings honestly say «не подключено»', async ({ page }, info) => {
+test('NT-07: without a Telegram token the settings honestly say «не настроен»', async ({ page }, info) => {
   await signUpAndOnboard(page, `e2e-tg-${info.project.name}-${Date.now()}@test.local`);
   await page.goto('/settings');
   await expect(page.getByText('Telegram-бот').first()).toBeVisible();
-  await expect(page.getByText(/не подключено/i).first()).toBeVisible();
+  await expect(page.getByText(/не настроен на сервере/i).first()).toBeVisible();
   const r = await page.request.post('/api/telegram/webhook', { data: { update_id: 1 } });
   expect(r.status()).toBe(503);
 });

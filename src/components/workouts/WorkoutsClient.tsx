@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { EXERCISE_BY_KEY } from '@/domain/fitness/catalog';
 import { STATUS_LABELS } from '@/domain/types';
-import { formatDateRu, formatRange } from '@/domain/time';
+import { formatDateRu, formatRange, formatTime, isoWeekday, weekdayShort } from '@/domain/time';
 import type { WorkoutOverview } from '@/server/services/workouts';
 import { api, errorMessage } from '@/lib/api';
 import { Badge } from '@/components/ui/Badge';
@@ -19,10 +19,46 @@ import { cn } from '@/components/ui/cn';
 import { useClientUser } from '@/components/shell/UserContext';
 import { statusTone } from '@/components/events/meta';
 import { ActiveSession, fmtSet } from './ActiveSession';
+import { fmtKg } from './format';
 import { Suggestion } from './Suggestion';
 
 type Ev = WorkoutOverview['weekEvents'][number];
 const SETTLED = ['completed', 'skipped', 'cancelled'];
+const isOpen = (e: Ev) => !SETTLED.includes(e.status) && e.status !== 'started';
+
+/** «вт 21:00» */
+function shortWhen(e: Ev, tz: string) {
+  return `${weekdayShort(isoWeekday(e.localDate)).toLowerCase()} ${formatTime(e.startAt, tz)}`;
+}
+
+/**
+ * A workout done without a plan link while a planned one is still open this week: offer to count it
+ * instead of that one (the nearest upcoming, else the latest past one), so the week is not counted twice.
+ */
+function replaceCandidate(o: WorkoutOverview): Ev | null {
+  const open = o.weekEvents.filter(isOpen).sort((a, b) => a.startAt.localeCompare(b.startAt));
+  return open.find((e) => e.localDate >= o.today) ?? open.filter((e) => e.localDate < o.today).at(-1) ?? null;
+}
+
+/** «Засчитать вместо вт 21:00?» — answered once per start / quick log. */
+function ReplaceQuestion({ candidate, busy, onAnswer }: { candidate: Ev; busy: 'yes' | 'no' | null; onAnswer: (replace: boolean) => void }) {
+  const { tz } = useClientUser();
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted">
+        В плане на этой неделе ещё стоит тренировка — {formatDateRu(candidate.localDate)}, {formatRange(candidate.startAt, candidate.endAt, tz)}. Если эта вместо неё, план отметится выполненным и в цели недели не задвоится.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button variant="primary" loading={busy === 'yes'} disabled={busy === 'no'} onClick={() => onAnswer(true)}>
+          Да, вместо неё
+        </Button>
+        <Button variant="secondary" loading={busy === 'no'} disabled={busy === 'yes'} onClick={() => onAnswer(false)}>
+          Нет, это дополнительная
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function WeekTarget({ o, current }: { o: WorkoutOverview; current: string | null }) {
   const { tz } = useClientUser();
@@ -44,10 +80,12 @@ function WeekTarget({ o, current }: { o: WorkoutOverview; current: string | null
           {o.weekEvents.map((e) => (
             <li key={e.id}>
               <Link href={`/workouts?event=${e.id}`} className={cn('flex min-h-11 items-center justify-between gap-2 rounded-lg px-2 hover:bg-surface-2', e.id === current && 'bg-accent-soft')}>
-                <span className="tabular text-sm">
-                  {formatDateRu(e.localDate)}, {formatRange(e.startAt, e.endAt, tz)}
+                <span className="tabular min-w-0 text-sm">
+                  {formatDateRu(e.localDate)}, {formatTime(e.startAt, tz)}
                 </span>
-                <Badge tone={statusTone(e.status)}>{STATUS_LABELS[e.status]}</Badge>
+                <Badge tone={statusTone(e.status)} className="shrink-0 whitespace-nowrap">
+                  {STATUS_LABELS[e.status]}
+                </Badge>
               </Link>
             </li>
           ))}
@@ -55,12 +93,11 @@ function WeekTarget({ o, current }: { o: WorkoutOverview; current: string | null
       ) : (
         <p className="mt-3 text-sm text-muted">На этой неделе тренировки в плане не стоят. Можно отметить тренировку и без плана — она засчитается.</p>
       )}
-      <p className="mt-2 text-xs text-muted">Перенос внутри недели сохраняет цель. Дополнительная тренировка без плана тоже засчитывается.</p>
     </Card>
   );
 }
 
-function QuickLogSheet({ open, onClose, linkable }: { open: boolean; onClose: () => void; linkable: Ev | null }) {
+function QuickLogSheet({ open, onClose, linkable, candidate }: { open: boolean; onClose: () => void; linkable: Ev | null; candidate: Ev | null }) {
   const router = useRouter();
   const toast = useToast();
   const { tz } = useClientUser();
@@ -68,26 +105,51 @@ function QuickLogSheet({ open, onClose, linkable }: { open: boolean; onClose: ()
   const [effort, setEffort] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
   const [link, setLink] = useState(!!linkable);
-  const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState<'save' | 'yes' | 'no' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function save() {
+  function validDuration(): number | null {
     const d = Number(duration);
-    if (!Number.isInteger(d) || d < 5 || d > 600) return setError('Длительность — минуты от 5 до 600');
-    setBusy(true);
+    if (!Number.isInteger(d) || d < 5 || d > 600) {
+      setError('Длительность — минуты от 5 до 600');
+      return null;
+    }
+    return d;
+  }
+
+  function onSave() {
+    if (validDuration() === null) return;
+    if (!(link && linkable) && candidate) return setAsking(true);
+    void save(link && linkable ? linkable.id : null, 'save');
+  }
+
+  async function save(eventId: string | null, key: 'save' | 'yes' | 'no') {
+    const d = validDuration();
+    if (d === null) return;
+    setBusy(key);
     setError(null);
     try {
       const r = await api<{ changed: boolean; warnings: string[] }>('/api/workouts/quick', {
-        body: { durationMinutes: d, perceivedEffort: effort, notes: notes.trim() || null, eventId: link && linkable ? linkable.id : null },
+        body: { durationMinutes: d, perceivedEffort: effort, notes: notes.trim() || null, eventId },
       });
       toast.ok(r.changed ? ['Тренировка засчитана', ...r.warnings].join(' ') : 'Эта тренировка уже записана');
       onClose();
       router.refresh();
     } catch (e) {
       setError(errorMessage(e));
+      setAsking(false);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
+  }
+
+  if (asking && candidate) {
+    return (
+      <Sheet open={open} onClose={onClose} title={`Засчитать вместо ${shortWhen(candidate, tz)}?`}>
+        <ReplaceQuestion candidate={candidate} busy={busy === 'yes' || busy === 'no' ? busy : null} onAnswer={(yes) => void save(yes ? candidate.id : null, yes ? 'yes' : 'no')} />
+      </Sheet>
+    );
   }
 
   return (
@@ -95,9 +157,9 @@ function QuickLogSheet({ open, onClose, linkable }: { open: boolean; onClose: ()
       open={open}
       onClose={onClose}
       title="Тренировка состоялась"
-      description="Без подходов — просто отметка и длительность. Засчитывается в цель недели."
+      description="Без подходов — просто отметка и длительность."
       footer={
-        <Button variant="primary" block loading={busy} onClick={save}>
+        <Button variant="primary" block loading={busy === 'save'} onClick={onSave}>
           Отметить
         </Button>
       }
@@ -129,22 +191,32 @@ function StartCard({ o, linkable }: { o: WorkoutOverview; linkable: Ev | null })
   const { tz } = useClientUser();
   const [routine, setRoutine] = useState(o.suggestedRoutineKey);
   const [link, setLink] = useState(!!linkable);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'start' | 'yes' | 'no' | null>(null);
+  const [asking, setAsking] = useState(false);
   const [quick, setQuick] = useState(false);
   const [quickKey, setQuickKey] = useState(0);
   const chosen = o.plan.choices.find((r) => r.key === routine) ?? o.plan.choices[0];
+  // only when nothing is linked yet: an explicit «Привязать к плану» switch already answered the question
+  const candidate = linkable ? null : replaceCandidate(o);
 
-  async function start() {
-    setBusy(true);
+  function onStart() {
+    if (!(link && linkable) && candidate) return setAsking(true);
+    void start(link && linkable ? linkable.id : null, 'start');
+  }
+
+  async function start(eventId: string | null, key: 'start' | 'yes' | 'no') {
+    setBusy(key);
     try {
-      const r = await api<{ resumed: boolean; warnings: string[] }>('/api/workouts/sessions', { body: { routineKey: routine, eventId: link && linkable ? linkable.id : null } });
+      const r = await api<{ resumed: boolean; warnings: string[] }>('/api/workouts/sessions', { body: { routineKey: routine, eventId } });
       toast.ok([r.resumed ? 'Продолжаем начатую тренировку' : 'Тренировка начата', ...r.warnings].join(' '));
+      setAsking(false);
       router.refresh();
     } catch (e) {
       toast.error(errorMessage(e));
+      setAsking(false);
       router.refresh();
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -167,7 +239,7 @@ function StartCard({ o, linkable }: { o: WorkoutOverview; linkable: Ev | null })
                 <span className="tabular shrink-0 text-muted">
                   {e.sets} × {e.repsMin}–{e.repsMax}
                   {e.unit === 'seconds' ? ' с' : ''}
-                  {view?.prefill.weightKg ? ` · ${view.prefill.weightKg} кг` : ''}
+                  {view?.prefill.weightKg ? ` · ${fmtKg(view.prefill.weightKg)} кг` : ''}
                 </span>
               </li>
             );
@@ -180,7 +252,7 @@ function StartCard({ o, linkable }: { o: WorkoutOverview; linkable: Ev | null })
         </div>
       ) : null}
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <Button variant="primary" size="lg" loading={busy} onClick={start} icon={<Dumbbell className="size-5" />}>
+        <Button variant="primary" size="lg" loading={busy === 'start'} onClick={onStart} icon={<Dumbbell className="size-5" />}>
           Начать тренировку
         </Button>
         <Button
@@ -196,7 +268,10 @@ function StartCard({ o, linkable }: { o: WorkoutOverview; linkable: Ev | null })
         </Button>
       </div>
       {o.plan.notes ? <p className="mt-3 text-xs text-muted">{o.plan.notes}</p> : null}
-      <QuickLogSheet key={quickKey} open={quick} onClose={() => setQuick(false)} linkable={linkable} />
+      <QuickLogSheet key={quickKey} open={quick} onClose={() => setQuick(false)} linkable={linkable} candidate={candidate} />
+      <Sheet open={asking && !!candidate} onClose={() => setAsking(false)} title={candidate ? `Засчитать вместо ${shortWhen(candidate, tz)}?` : ''}>
+        {candidate ? <ReplaceQuestion candidate={candidate} busy={busy === 'yes' || busy === 'no' ? busy : null} onAnswer={(yes) => void start(yes ? candidate.id : null, yes ? 'yes' : 'no')} /> : null}
+      </Sheet>
     </Card>
   );
 }

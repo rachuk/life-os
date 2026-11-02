@@ -212,7 +212,11 @@ export async function confirmInboxItem(tx: Tx, ctx: UserContext, now: DateTime, 
         const open = rows
           .filter((r) => r.kind === 'workout' && ['planned', 'notified', 'snoozed', 'rescheduled', 'unanswered'].includes(r.status))
           .sort((x, y) => Number(y.localDate === a.dateLocal) - Number(x.localDate === a.dateLocal) || x.startAt.getTime() - y.startAt.getTime())[0];
-        if (open) {
+        const sameSlot = open && open.localDate === a.dateLocal && DateTime.fromJSDate(open.startAt).setZone(ctx.tz).toFormat('HH:mm') === time;
+        if (open && sameSlot) {
+          linked.push({ entity: 'schedule_event', id: open.id });
+          p.result = { entity: 'schedule_event', id: open.id, message: 'Уже в плане — ничего не менял' };
+        } else if (open) {
           const r = await transitionEvent(tx, ctx, now, open.id, { action: 'reschedule', toDate: a.dateLocal, toTime: time, reason: 'Из входящих' }, source);
           linked.push({ entity: 'schedule_event', id: open.id });
           p.result = { entity: 'schedule_event', id: open.id, message: `Тренировка перенесена на ${weekdayLong(isoWeekday(a.dateLocal))} ${time}${r.warnings.length ? ` (${r.warnings.join(' ')})` : ''}` };

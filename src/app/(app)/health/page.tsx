@@ -2,7 +2,7 @@ import { Camera, ChevronRight, Utensils } from 'lucide-react';
 import Link from 'next/link';
 import { requirePageUser } from '@/server/auth/current';
 import { inUser, now } from '@/server/context';
-import { addDays, formatDateRu, weekStartOf } from '@/domain/time';
+import { addDays, weekStartOf } from '@/domain/time';
 import { MEAL_KINDS } from '@/domain/types';
 import { healthSummary, healthToday } from '@/server/services/health';
 import { habitsWeek } from '@/server/services/habits';
@@ -33,10 +33,7 @@ export default async function HealthPage() {
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Здоровье</h1>
-          <p className="text-sm text-muted">{formatDateRu(data.today.date, { long: true })}</p>
-        </div>
+        <h1 className="text-2xl font-semibold">Здоровье</h1>
         <div className="flex gap-2">
           <Link href="/health/meals" className="flex min-h-11 items-center gap-1.5 rounded-xl border border-border bg-surface px-3 text-sm hover:bg-surface-2">
             <Utensils className="size-4" /> Питание и меню
@@ -47,14 +44,12 @@ export default async function HealthPage() {
         </div>
       </header>
 
-      <Section title="Сегодня">
-        <HealthToday data={data.today} />
-      </Section>
+      <HealthToday data={data.today} />
 
       <Section
         title="Еда сегодня"
         action={
-          <Link href="/health/meals" className="flex min-h-11 items-center text-sm text-accent">
+          <Link href="/health/meals" className="-my-2 inline-flex min-h-11 items-center text-sm text-accent">
             Меню недели <ChevronRight className="size-4" />
           </Link>
         }

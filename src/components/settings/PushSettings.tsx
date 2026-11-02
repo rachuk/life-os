@@ -185,19 +185,17 @@ export function PushSettings() {
           </p>
           <p className="mt-0.5 text-sm text-muted">Уведомления от установленного веб-приложения. Если подключён Telegram, напоминания идут туда.</p>
         </div>
-        {subscribed ? <Badge tone="ok">включены</Badge> : <Badge>выключены</Badge>}
+        {subscribed ? <Badge tone="ok" className="shrink-0">включены</Badge> : server.enabled && server.configured ? <Badge className="shrink-0">выключены</Badge> : <Badge className="shrink-0">не настроены</Badge>}
       </div>
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
       {!server.enabled ? (
-        <Notice>Push выключены настройкой сервера (ENABLE_WEB_PUSH=false).</Notice>
+        <Notice>Push выключены на сервере. Напоминания приходят внутри приложения.</Notice>
       ) : !server.configured ? (
         <Notice>
-          <p className="font-medium">Не подключено: на сервере не заданы VAPID-ключи</p>
-          <p className="mt-1">
-            Сгенерируй их командой <code>pnpm vapid</code> и добавь VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY в окружение сервера. Напоминания пока видны внутри приложения.
-          </p>
+          <p className="font-medium">Push не настроен на сервере</p>
+          <p className="mt-1">Напоминания пока приходят внутри приложения.</p>
         </Notice>
       ) : support === 'ios_install' ? (
         <Notice tone="accent">

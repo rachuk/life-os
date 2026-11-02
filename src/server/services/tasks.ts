@@ -2,6 +2,7 @@ import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { TASK_CATEGORIES } from '@/domain/capture/schema';
 import { isLocalDate, isLocalTime, zoned } from '@/domain/time';
+import { resolveDateTime } from '@/domain/capture/dates';
 import { one, type Tx } from '../db';
 import { AppError, notFound } from '../http';
 import { audit } from './audit';
@@ -128,22 +129,50 @@ export type TaskTab = 'inbox' | 'scheduled' | 'waiting' | 'someday' | 'done' | '
 
 export async function listTasks(tx: Tx, ctx: UserContext, tab: TaskTab, q?: string | null): Promise<TaskRow[]> {
   const search = q?.trim() ? `%${q.trim().replace(/[%_]/g, '')}%` : null;
-  const statuses: Record<TaskTab, string[]> = {
-    inbox: ['inbox', 'todo', 'in_progress'],
-    scheduled: ['scheduled'],
-    waiting: ['waiting'],
-    someday: ['someday'],
-    done: ['done', 'cancelled'],
-    all: ['inbox', 'todo', 'scheduled', 'in_progress', 'waiting', 'someday', 'done', 'cancelled'],
-  };
+  // tabs map 1:1: a dated open task is «В плане», an undated one is «Входящие»
   return tx<TaskRow[]>`
     select * from tasks
-    where user_id = ${ctx.userId} and status = any(${statuses[tab]})
+    where user_id = ${ctx.userId}
+      and (
+        (${tab} = 'all') or
+        (${tab} = 'inbox' and status in ('inbox','todo','in_progress') and due_date is null) or
+        (${tab} = 'scheduled' and (status = 'scheduled' or (status in ('inbox','todo','in_progress') and due_date is not null))) or
+        (${tab} = 'waiting' and status = 'waiting') or
+        (${tab} = 'someday' and status = 'someday') or
+        (${tab} = 'done' and status in ('done','cancelled'))
+      )
       and (${search}::text is null or title ilike ${search} or coalesce(details, '') ilike ${search})
     order by
       case when ${tab} = 'done' then extract(epoch from coalesce(completed_at, updated_at)) * -1 else 0 end,
       due_date nulls last, follow_up_at nulls last, priority = 'high' desc, created_at desc
     limit 300`;
+}
+
+export async function taskTabCounts(tx: Tx, userId: string): Promise<Record<string, number>> {
+  const [r] = await tx<{ inbox: number; scheduled: number; waiting: number; someday: number }[]>`
+    select
+      count(*) filter (where status in ('inbox','todo','in_progress') and due_date is null)::int as inbox,
+      count(*) filter (where status = 'scheduled' or (status in ('inbox','todo','in_progress') and due_date is not null))::int as scheduled,
+      count(*) filter (where status = 'waiting')::int as waiting,
+      count(*) filter (where status = 'someday')::int as someday
+    from tasks where user_id = ${userId}`;
+  return { ...r! };
+}
+
+/**
+ * Inline «Дела» input: «записаться к стоматологу в пятницу» → title + due date. Ambiguous phrases
+ * keep the text as is and ask to check (never an invented deadline).
+ */
+export function parseTitleDates(title: string, now: DateTime, tz: string): { title: string; dueDate: string | null; dueTime: string | null; note: string | null } {
+  const m = resolveDateTime(title, now, tz);
+  if (!m.date || m.ambiguous) return { title, dueDate: null, dueTime: null, note: m.date && m.ambiguous ? (m.reasons[0] ?? 'Проверь дату') : null };
+  let t = ` ${title} `;
+  for (const f of m.consumed) {
+    const idx = t.toLowerCase().replace(/ё/g, 'е').indexOf(f.trim());
+    if (idx >= 0) t = t.slice(0, idx) + ' ' + t.slice(idx + f.trim().length);
+  }
+  t = t.replace(/\s+/g, ' ').trim();
+  return { title: t ? t[0]!.toUpperCase() + t.slice(1) : title, dueDate: m.date, dueTime: m.ambiguousHour === null ? m.time : null, note: null };
 }
 
 export async function taskCounts(tx: Tx, userId: string): Promise<Record<string, number>> {

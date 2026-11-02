@@ -19,9 +19,10 @@ test('onboarding → capture → tasks → extra work preview/commit/undo', asyn
   await expect(page.getByText('Проверь и подтверди')).toBeVisible();
   await expect(page.getByLabel('Название').first()).toHaveValue(/брокеру/i);
   await page.getByRole('button', { name: 'Создать всё' }).click();
-  await expect(page.getByText(/Готово: 2/)).toBeVisible();
+  await expect(page.getByText(/Сохранено: дело на .* · Бананы → покупки/)).toBeVisible();
 
-  await page.goto('/tasks');
+  // a dated task lives in «В плане» (tabs map 1:1 to status + date)
+  await page.goto('/tasks?tab=scheduled');
   await expect(page.getByText(/брокеру/i).first()).toBeVisible();
   await noHorizontalScroll(page);
 
@@ -30,7 +31,8 @@ test('onboarding → capture → tasks → extra work preview/commit/undo', asyn
   await page.getByRole('button', { name: 'Нужно поработать' }).filter({ visible: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: '+2 ч' }).click();
-  await expect(dialog.getByText('18:00–20:00')).toBeVisible();
+  await expect(dialog.getByText('18:00–20:00').first()).toBeVisible();
+  await expect(dialog.getByText(/Работа 18:00–20:00 · Ужин → 20:00/)).toBeVisible(); // summary next to «Подтвердить»
   await expect(dialog.getByText('Ужин').first()).toBeVisible(); // dinner moved inside its window
   await dialog.getByRole('button', { name: /Подтвердить/ }).click();
   await expect(page.getByText(/План перестроен/)).toBeVisible();

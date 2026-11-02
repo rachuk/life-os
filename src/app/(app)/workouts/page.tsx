@@ -13,7 +13,9 @@ export default async function WorkoutsPage({ searchParams }: { searchParams: Pro
     <div className="space-y-5">
       <header>
         <h1 className="text-2xl font-semibold">Тренировки</h1>
-        <p className="text-sm text-muted">{o.plan.name} · цель {o.progress.target} в неделю. Регулярность важнее рекордов.</p>
+        <p className="text-sm text-muted">
+          {o.plan.name} · цель {o.progress.target} в неделю
+        </p>
       </header>
       <WorkoutsClient o={o} />
     </div>

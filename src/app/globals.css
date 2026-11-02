@@ -9,7 +9,7 @@
   --border: #e0e0da;
   --text: #1b1c1a;
   --muted: #676863;
-  --faint: #9a9b95;
+  --faint: #767771;
   --accent: #2f6151;
   --accent-hover: #264f42;
   --accent-soft: #e3eee9;
@@ -42,7 +42,7 @@
     --border: #2d2f2d;
     --text: #ecece8;
     --muted: #a2a39d;
-    --faint: #73746f;
+    --faint: #8a8b85;
     --accent: #84c2ab;
     --accent-hover: #9dd2be;
     --accent-soft: #1d2d27;
@@ -75,7 +75,7 @@
   --border: #2d2f2d;
   --text: #ecece8;
   --muted: #a2a39d;
-  --faint: #73746f;
+  --faint: #8a8b85;
   --accent: #84c2ab;
   --accent-hover: #9dd2be;
   --accent-soft: #1d2d27;
@@ -182,4 +182,19 @@ dialog::backdrop {
     transform: none;
     opacity: 1;
   }
+}
+
+/* the floating «+» hides while e.g. a workout session needs the space */
+:root[data-hide-fab] .lifeos-fab {
+  display: none;
+}
+
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 100;
+}
+.skip-link:focus {
+  top: 12px;
 }

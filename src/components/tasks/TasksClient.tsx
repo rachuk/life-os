@@ -55,6 +55,7 @@ export function TasksClient({
   const [open, setOpen] = useState<SerializedTask | null>(null);
   const [search, setSearch] = useState(q);
   const [completing, setCompleting] = useState<string | null>(null);
+  const [justDone, setJustDone] = useState<Set<string>>(new Set());
   const [projectName, setProjectName] = useState('');
   const [showProject, setShowProject] = useState(false);
 
@@ -80,10 +81,10 @@ export function TasksClient({
     setAdding(true);
     try {
       const type = tab === 'someday' ? 'idea' : tab === 'waiting' ? 'waiting' : 'task';
-      await api('/api/tasks', { body: { title: title.trim(), type, category: 'personal', priority: 'normal' } });
+      const r = await api<{ task: SerializedTask; note: string | null }>('/api/tasks', { body: { title: title.trim(), type, category: 'personal', priority: 'normal', parseDates: true } });
       setTitle('');
       router.refresh();
-      toast.ok('Добавлено во входящие');
+      toast.ok(r.task.dueDate ? `Добавлено на ${relativeDayLabel(r.task.dueDate, today).toLowerCase()}` : r.note ? `Добавлено. ${r.note}` : 'Добавлено во входящие');
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -94,10 +95,32 @@ export function TasksClient({
   async function toggleDone(t: SerializedTask) {
     setCompleting(t.id);
     try {
-      if (t.status === 'done') await api(`/api/tasks/${t.id}`, { method: 'PATCH', body: { status: 'todo' } });
-      else await api(`/api/tasks/${t.id}/complete`, { body: {} });
-      router.refresh();
-      if (t.status !== 'done') toast.ok('Готово', { label: 'Ждать ответа', onClick: () => setOpen({ ...t, status: 'done' }) });
+      if (t.status === 'done') {
+        await api(`/api/tasks/${t.id}`, { method: 'PATCH', body: { status: 'todo' } });
+        router.refresh();
+      } else {
+        const prev = t.status;
+        await api(`/api/tasks/${t.id}/complete`, { body: {} });
+        setJustDone((s) => new Set(s).add(t.id));
+        // keep the struck-through row visible for a moment, then refresh the list
+        setTimeout(() => router.refresh(), 2500);
+        toast.ok('Готово', {
+          label: 'Отменить',
+          onClick: async () => {
+            try {
+              await api(`/api/tasks/${t.id}`, { method: 'PATCH', body: { status: prev === 'done' ? 'todo' : prev } });
+              setJustDone((s) => {
+                const n = new Set(s);
+                n.delete(t.id);
+                return n;
+              });
+              router.refresh();
+            } catch (e) {
+              toast.error(errorMessage(e));
+            }
+          },
+        });
+      }
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -134,11 +157,11 @@ export function TasksClient({
         value={tab}
         onChange={(t) => go(t, '')}
         options={[
-          { value: 'inbox', label: 'Входящие', count: c('inbox') + c('todo') + c('in_progress') },
-          { value: 'scheduled', label: 'Запланировано', count: c('scheduled') },
-          { value: 'waiting', label: 'Ожидаю', count: c('waiting') },
-          { value: 'someday', label: 'Когда-нибудь', count: c('someday') },
-          { value: 'done', label: 'Завершено' },
+          { value: 'inbox', label: 'Входящие', count: c('inbox') },
+          { value: 'scheduled', label: 'В плане', count: c('scheduled') },
+          { value: 'waiting', label: 'Жду', count: c('waiting') },
+          { value: 'someday', label: 'Потом', count: c('someday') },
+          { value: 'done', label: 'Готово' },
         ]}
       />
 
@@ -162,7 +185,7 @@ export function TasksClient({
         <form onSubmit={add} className="flex gap-2">
           <Input
             aria-label="Новое дело"
-            placeholder={tab === 'someday' ? 'Идея или желание…' : tab === 'waiting' ? 'Чего жду…' : 'Новое дело — без срока, если его нет'}
+            placeholder={tab === 'someday' ? 'Идея или желание…' : tab === 'waiting' ? 'Чего жду…' : 'Новое дело, можно «в пятницу»'}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
@@ -198,7 +221,7 @@ export function TasksClient({
             <h2 className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">{group}</h2>
             <Card className="divide-y divide-border">
               {list.map((t) => {
-                const done = t.status === 'done' || t.status === 'cancelled';
+                const done = t.status === 'done' || t.status === 'cancelled' || justDone.has(t.id);
                 const overdue = !done && t.dueDate && t.dueDate < today;
                 return (
                   <div key={t.id} className="flex items-start gap-1 pr-2">
@@ -241,8 +264,22 @@ export function TasksClient({
         ))
       ) : (
         <Card>
-          <EmptyState title={q ? 'Ничего не найдено' : tab === 'inbox' ? 'Входящие пусты' : 'Пусто'}>
-            {tab === 'inbox' ? 'Выгрузи дела из головы через «+» — текстом, голосом или фото.' : null}
+          <EmptyState
+            title={
+              q
+                ? 'Ничего не найдено'
+                : { inbox: 'Входящие пусты', scheduled: 'Нет дел со сроком', waiting: 'Ничего не ждёшь', someday: 'Идей пока нет', done: 'Пока ничего не завершено' }[tab]
+            }
+          >
+            {q
+              ? null
+              : {
+                  inbox: 'Выгрузи дела из головы через «+» — текстом или голосом.',
+                  scheduled: 'Здесь появятся дела с датой и дела, поставленные в план.',
+                  waiting: 'Отметь дело «Выполнено + проверить ответ» — оно появится здесь с датой проверки.',
+                  someday: 'Записывай сюда желания и идеи без срока.',
+                  done: 'Выполненные дела будут здесь.',
+                }[tab]}
           </EmptyState>
         </Card>
       )}

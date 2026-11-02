@@ -1,5 +1,5 @@
 import { requirePageUser } from '@/server/auth/current';
-import { inUser } from '@/server/context';
+import { inUser, now } from '@/server/context';
 import { integrationStatuses } from '@/server/env';
 import { deliveryDiagnostics } from '@/server/services/notifications';
 import { SettingsClient } from '@/components/settings/SettingsClient';
@@ -15,6 +15,7 @@ export default async function SettingsPage() {
     notifications: ctx.prefs.notifications,
     quietHours: ctx.profile.quietHours,
     tz: ctx.tz,
+    nowIso: now().toISO()!,
     diagnostics: (await deliveryDiagnostics(tx, user.id, 30)).map((d) => ({
       id: d.id,
       channel: d.channel,
@@ -28,5 +29,7 @@ export default async function SettingsPage() {
       title: d.payloadJson?.title ?? '',
     })),
   }));
-  return <SettingsClient {...data} integrations={integrationStatuses()} channels={<SettingsChannels />} />;
+  const integrations = integrationStatuses();
+  const ready = (key: string) => integrations.some((i) => i.key === key && i.enabled && i.configured);
+  return <SettingsClient {...data} integrations={integrations} channels={<SettingsChannels telegram={ready('telegram')} push={ready('web_push')} />} />;
 }

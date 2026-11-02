@@ -25,7 +25,7 @@ export default async function ShoppingPage({ searchParams }: { searchParams: Pro
     <div className="space-y-5">
       <header>
         <h1 className="text-2xl font-semibold">Покупки</h1>
-        <p className="text-sm text-muted">Две корзины на неделю: личная и общая домашняя. Кто покупает и платит — решаете сами.</p>
+        <p className="text-sm text-muted">Личная и общая домашняя корзины на неделю.</p>
       </header>
       <ShoppingClient weekStart={data.shopping.weekStart} lists={data.shopping.lists} templates={data.templates} currentWeek={data.currentWeek} />
     </div>

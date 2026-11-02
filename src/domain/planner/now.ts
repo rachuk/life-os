@@ -13,7 +13,8 @@ export type NowActionKind =
   | 'plan_tomorrow'
   | 'build_plan'
   | 'reschedule'
-  | 'open_workout';
+  | 'open_workout'
+  | 'meal_eaten';
 
 export interface NowAction {
   id: string;
@@ -165,8 +166,8 @@ export function computeNow(input: NowInput): NowState {
         headline: `${KIND_LABELS[current.kind]} идёт`,
         subline: formatRange(current.startAt, current.endAt, tz),
         actions: [
-          { id: 'meal_log', label: 'Поел — отметить', kind: 'meal_log', eventId: current.id, variant: 'primary' },
-          capture,
+          { id: 'meal_eaten', label: 'Поел', kind: 'meal_eaten', eventId: current.id, variant: 'primary' },
+          { id: 'meal_log', label: 'Часть / другое', kind: 'meal_log', eventId: current.id, variant: 'secondary' },
         ],
       };
     }
@@ -176,7 +177,7 @@ export function computeNow(input: NowInput): NowState {
       headline: current.kind === 'snack' ? 'Время перекуса' : `Пора на ${label === 'завтрак' ? 'завтрак' : label}`,
       subline: formatRange(current.startAt, current.endAt, tz),
       actions: [
-        { id: 'meal_start', label: 'Начал', kind: 'transition', transition: 'start', eventId: current.id, variant: 'primary' },
+        { id: 'meal_eaten', label: 'Поел', kind: 'meal_eaten', eventId: current.id, variant: 'primary' },
         { id: 'meal_snooze', label: '+15 минут', kind: 'transition', transition: 'snooze', eventId: current.id, variant: 'secondary' },
         { id: 'meal_skip', label: 'Не могу сейчас', kind: 'reschedule', eventId: current.id, variant: 'secondary' },
       ],

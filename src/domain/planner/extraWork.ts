@@ -76,7 +76,7 @@ export interface PlannedChange {
 }
 
 export interface PreviewConflict {
-  code: 'PAST_DATE' | 'SLEEP_LIMIT' | 'NO_TIME_BEFORE_SLEEP' | 'INVALID_REQUEST';
+  code: 'PAST_DATE' | 'SLEEP_LIMIT' | 'NO_TIME_BEFORE_SLEEP' | 'IN_SLEEP' | 'INVALID_REQUEST';
   message: string;
   suggestedDurationMinutes?: number;
 }
@@ -223,6 +223,12 @@ export function previewExtraWork(req: ExtraWorkRequest, ctx: ExtraWorkContext): 
     .find((e) => e.endAt > start);
   const bedDate = timeToMinutes(prefs.bedTime) >= 12 * 60 ? req.date : addDays(req.date, 1);
   const limit = sleep && sleep.startAt > start ? sleep.startAt : sleep ? start : zoned(bedDate, prefs.bedTime, tz);
+  if (sleep && sleep.startAt <= start && sleep.endAt > start) {
+    return emptyPreview(req, {
+      code: 'IN_SLEEP',
+      message: `Сейчас время сна (до ${formatTime(sleep.endAt, tz)}). Сон не сокращается — работу можно поставить на завтра.`,
+    });
+  }
   if (limit <= start) {
     return emptyPreview(req, {
       code: 'NO_TIME_BEFORE_SLEEP',

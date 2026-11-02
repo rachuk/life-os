@@ -166,20 +166,17 @@ export function TelegramConnect() {
           </p>
           <p className="mt-0.5 text-sm text-muted">Напоминания с кнопками, быстрые записи текстом, голосом и фото.</p>
         </div>
-        {tg ? <Badge tone="ok">подключён</Badge> : <Badge>не подключён</Badge>}
+        {tg ? <Badge tone="ok" className="shrink-0">подключён</Badge> : integration?.enabled && integration.configured ? <Badge className="shrink-0">не подключён</Badge> : <Badge className="shrink-0">не настроен</Badge>}
       </div>
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
       {!integration?.enabled ? (
-        <Notice>Telegram выключен настройкой сервера (ENABLE_TELEGRAM=false). Напоминания работают внутри приложения.</Notice>
+        <Notice>Telegram выключен на сервере. Напоминания приходят внутри приложения.</Notice>
       ) : !integration.configured ? (
         <Notice>
-          <p className="font-medium">Не подключено: на сервере нет TELEGRAM_BOT_TOKEN</p>
-          <p className="mt-1">
-            Напоминания продолжают работать внутри приложения. Чтобы включить бота: создай его у @BotFather, задай TELEGRAM_BOT_TOKEN и TELEGRAM_BOT_USERNAME в окружении
-            сервера и запусти <code>pnpm bot:poll</code> (или <code>pnpm bot:webhook set</code> при HTTPS).
-          </p>
+          <p className="font-medium">Telegram не настроен на сервере</p>
+          <p className="mt-1">Напоминания продолжают приходить внутри приложения. Подключить чат можно будет, когда бот появится на сервере.</p>
         </Notice>
       ) : tg ? (
         <div className="space-y-2">

@@ -26,9 +26,9 @@ export interface WeekSkillFact {
 export function WeekChangeBlock({ habits, skills }: { habits: WeekHabitFact[]; skills: WeekSkillFact[] }) {
   if (!habits.length && !skills.length) return null;
   return (
-    <div className="mt-6 space-y-6">
+    <div className="space-y-5">
       {habits.length ? (
-        <Section title="Изменение привычек" action={<Link href="/habits" className="text-sm text-accent">Открыть</Link>}>
+        <Section title="Изменение привычек" action={<Link href="/habits" className="-mr-2 inline-flex min-h-11 items-center rounded-lg px-2 text-sm text-accent">Открыть</Link>}>
           <div className="space-y-2">
             {habits.map((h) => (
               <Card key={h.id} className="space-y-1 p-4 text-sm">
@@ -43,7 +43,7 @@ export function WeekChangeBlock({ habits, skills }: { habits: WeekHabitFact[]; s
                 )}
                 {h.patterns.map((p) => (
                   <p key={p.key} className="text-muted">
-                    {p.text} <span className="text-xs text-faint">({p.basedOn})</span>
+                    {p.text} <span className="text-xs">({p.basedOn})</span>
                   </p>
                 ))}
               </Card>
@@ -52,7 +52,7 @@ export function WeekChangeBlock({ habits, skills }: { habits: WeekHabitFact[]; s
         </Section>
       ) : null}
       {skills.length ? (
-        <Section title="Навыки" action={<Link href="/skills" className="text-sm text-accent">Открыть</Link>}>
+        <Section title="Навыки" action={<Link href="/skills" className="-mr-2 inline-flex min-h-11 items-center rounded-lg px-2 text-sm text-accent">Открыть</Link>}>
           <Card className="divide-y divide-border">
             {skills.map((s) => (
               <div key={s.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">

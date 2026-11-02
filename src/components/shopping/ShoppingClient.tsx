@@ -53,6 +53,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 }
 
 const UNITS = ['', 'г', 'кг', 'мл', 'л', 'шт', 'уп', 'бут'];
+const qtyFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const CATEGORY_ORDER = Object.keys(SHOPPING_CATEGORY_LABELS);
 const TEMPLATE_GROUPS: Record<string, string> = { breakfast: 'Завтраки', snack: 'Перекусы', drink: 'Напитки', post_workout: 'После тренировки', lunch: 'Обеды', dinner: 'Ужины' };
 
@@ -75,7 +76,7 @@ function ItemRow({ item, onToggle, onEdit, busy }: { item: ShopItem; onToggle: (
       <button type="button" onClick={onEdit} className="min-h-11 min-w-0 flex-1 rounded-xl px-2 py-1.5 text-left hover:bg-surface-2">
         <span className={cn('block text-[15px]', item.checked && 'text-muted line-through decoration-faint')}>
           {item.name}
-          {item.quantity !== null ? <span className="tabular whitespace-nowrap text-muted"> · {item.quantity}{item.unit ? ` ${item.unit}` : ''}</span> : null}
+          {item.quantity !== null ? <span className="tabular whitespace-nowrap text-muted"> · {qtyFormat.format(item.quantity)}{item.unit ? ` ${item.unit}` : ''}</span> : null}
         </span>
         {item.notes && !item.checked ? <span className="block text-xs text-muted">{item.notes}</span> : null}
       </button>
@@ -214,14 +215,14 @@ function ItemSheet({ item, onClose }: { item: ShopItem | null; onClose: () => vo
   const toast = useToast();
   // initialised on mount; the parent remounts the sheet (key) for every item it opens
   const [name, setName] = useState(item?.name ?? '');
-  const [qty, setQty] = useState(item?.quantity != null ? String(item.quantity) : '');
+  const [qty, setQty] = useState(item?.quantity != null ? String(item.quantity).replace('.', ',') : '');
   const [unit, setUnit] = useState(item?.unit ?? '');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
     if (!item) return;
-    const q = qty.trim() ? Number(qty.replace(',', '.')) : null;
+    const q = qty.trim() ? Number(qty.replace(',', '.').replace(/\s/g, '')) : null;
     if (q !== null && (!Number.isFinite(q) || q <= 0)) return setError('Количество — положительное число');
     if (!name.trim()) return setError('Название не может быть пустым');
     setBusy('save');
@@ -328,7 +329,7 @@ function GenerateSheet({ open, onClose, templates, weekStart }: { open: boolean;
       open={open}
       onClose={onClose}
       title="Собрать из меню"
-      description="Сколько раз за неделю будет блюдо. Часть меню в списке пересчитывается целиком — повтор не дублирует. Ручные строки не трогаем."
+      description="Сколько раз за неделю будет каждое блюдо. Повторная сборка не дублирует строки, ручные не трогает. Запасы дома не учитываются."
       footer={
         result ? (
           <Button variant="primary" block onClick={onClose}>
@@ -415,7 +416,7 @@ export function ShoppingClient({ weekStart, lists, templates, currentWeek }: { w
           {weekStart === currentWeek ? (
             <p className="text-xs text-accent">эта неделя</p>
           ) : (
-            <Link href="/shopping" className="text-xs text-accent">
+            <Link href="/shopping" className="-my-2.5 inline-flex min-h-11 items-center px-2 text-xs text-accent">
               к текущей неделе
             </Link>
           )}
@@ -425,19 +426,16 @@ export function ShoppingClient({ weekStart, lists, templates, currentWeek }: { w
         </Link>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="soft"
-          icon={<Wand2 className="size-4" />}
-          onClick={() => {
-            setGenKey((k) => k + 1);
-            setGen(true);
-          }}
-        >
-          Собрать из меню
-        </Button>
-        <p className="text-xs text-muted">Запасы не отслеживаются — перед походом проверь дома. Ничего не заказывается автоматически.</p>
-      </div>
+      <Button
+        variant="soft"
+        icon={<Wand2 className="size-4" />}
+        onClick={() => {
+          setGenKey((k) => k + 1);
+          setGen(true);
+        }}
+      >
+        Собрать из меню
+      </Button>
 
       <Segmented
         ariaLabel="Корзина"

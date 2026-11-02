@@ -97,7 +97,7 @@ export function suggestProgression(
   const easy = done.every((s) => s.rpe === null || s.rpe <= 8);
   const missed = done.some((s) => (s.actualReps ?? 0) < target.repsMin);
   if (allTop && easy && working > 0) {
-    return { action: 'increase', weightKg: working + incrementKg, message: `Все подходы в верхней границе — предлагаю попробовать ${working + incrementKg} кг. Можно отказаться.` };
+    return { action: 'increase', weightKg: working + incrementKg, message: `Все подходы в верхней границе — предлагаю попробовать ${String(working + incrementKg).replace('.', ',')} кг. Можно отказаться.` };
   }
   if (missed) {
     return { action: working > 0 ? 'reduce' : 'keep', weightKg: working > 0 ? Math.max(0, working - incrementKg) : null, message: 'Часть подходов ниже диапазона — оставь вес или немного снизь, следи за восстановлением.' };

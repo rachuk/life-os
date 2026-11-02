@@ -2,7 +2,7 @@ import { Bell, ChevronRight, Dumbbell, Gift, GraduationCap, Moon, ScrollText, Se
 import Link from 'next/link';
 import { requirePageUser } from '@/server/auth/current';
 import { Card } from '@/components/ui/Card';
-import { DataRights, InstallHint, LogoutButton } from '@/components/more/MoreClient';
+import { InstallHint, LogoutButton } from '@/components/more/MoreClient';
 
 export const metadata = { title: 'Ещё' };
 
@@ -15,7 +15,7 @@ const LINKS = [
   { href: '/review/evening', label: 'Вечерний обзор', hint: 'Завершить день и план на завтра', icon: Moon },
   { href: '/rewards', label: 'Награды', hint: 'Фонд желаний и достижения', icon: Gift },
   { href: '/notifications', label: 'Уведомления', hint: 'Напоминания и доставка', icon: Bell },
-  { href: '/settings', label: 'Настройки', hint: 'Распорядок, каналы, приватность', icon: Settings },
+  { href: '/settings', label: 'Настройки', hint: 'Распорядок, уведомления, данные', icon: Settings },
 ] as const;
 
 export default async function MorePage() {
@@ -45,7 +45,6 @@ export default async function MorePage() {
         </nav>
       </Card>
       <InstallHint />
-      <DataRights />
       <LogoutButton />
     </div>
   );

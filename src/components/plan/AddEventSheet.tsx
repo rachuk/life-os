@@ -1,6 +1,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { formatDateRu } from '@/domain/time';
 import { api, errorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
@@ -57,7 +58,7 @@ export function AddEventSheet({ open, onClose, defaultDate }: { open: boolean; o
         {error ? <Notice tone="danger">{error}</Notice> : null}
         <Input label="Название" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например, стоматолог" />
         <div className="grid grid-cols-2 gap-3">
-          <Input type="date" label="День" value={date} onChange={(e) => setDate(e.target.value)} />
+          <Input type="date" label={date ? `День · ${formatDateRu(date)}` : 'День'} value={date} onChange={(e) => setDate(e.target.value)} />
           <Input type="time" label="Начало" value={time} onChange={(e) => setTime(e.target.value)} />
           <Input type="number" label="Длительность, мин" min={5} max={720} value={duration} onChange={(e) => setDuration(Number(e.target.value) || 30)} />
           <Select label="Тип" value={kind} onChange={(e) => setKind(e.target.value)}>
@@ -68,11 +69,10 @@ export function AddEventSheet({ open, onClose, defaultDate }: { open: boolean; o
             <option value="free_time">Свободное время</option>
           </Select>
         </div>
-        <Select label="Насколько жёсткое" value={priorityClass} onChange={(e) => setPriorityClass(e.target.value)}>
-          <option value="flexible">Гибкое — можно двигать</option>
-          <option value="required_movable">Обязательное, можно переносить</option>
-          <option value="fixed">Неподвижное (подтверждённая встреча)</option>
-          <option value="protected">Защищённое</option>
+        <Select label="Можно ли двигать" value={priorityClass} onChange={(e) => setPriorityClass(e.target.value)}>
+          <option value="flexible">Да, если что-то важнее</option>
+          <option value="required_movable">Обязательно сделать, но время можно поменять</option>
+          <option value="fixed">Нет — это встреча с точным временем</option>
         </Select>
       </div>
     </Sheet>

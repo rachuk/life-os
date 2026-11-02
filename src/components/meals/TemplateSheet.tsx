@@ -48,7 +48,7 @@ export function TemplateSheet({ open, onClose, template }: { open: boolean; onCl
   const [notes, setNotes] = useState(template?.notes ?? '');
   const [rows, setRows] = useState<Row[]>(() =>
     template?.ingredientsJson.length
-      ? template.ingredientsJson.map((i) => ({ name: i.name, quantity: i.quantity != null ? String(i.quantity) : '', unit: i.unit ?? '' }))
+      ? template.ingredientsJson.map((i) => ({ name: i.name, quantity: i.quantity != null ? String(i.quantity).replace('.', ',') : '', unit: i.unit ?? '' }))
       : [{ name: '', quantity: '', unit: '' }],
   );
   const [busy, setBusy] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export function TemplateSheet({ open, onClose, template }: { open: boolean; onCl
     const ingredients = rows
       .filter((r) => r.name.trim())
       .map((r) => {
-        const q = r.quantity.trim() ? Number(r.quantity.replace(',', '.')) : null;
+        const q = r.quantity.trim() ? Number(r.quantity.replace(',', '.').replace(/\s/g, '')) : null;
         return { name: r.name.trim(), quantity: q !== null && Number.isFinite(q) && q > 0 ? q : null, unit: r.unit || null };
       });
     const prepMinutes = prep.trim() ? Number(prep) : null;
@@ -142,14 +142,18 @@ export function TemplateSheet({ open, onClose, template }: { open: boolean; onCl
           {rows.map((r, i) => (
             <div key={i} className="flex gap-2">
               <Input aria-label={`Ингредиент ${i + 1}`} placeholder="продукт" value={r.name} onChange={(e) => setRow(i, { name: e.target.value })} className="min-w-0 flex-1" />
-              <Input aria-label={`Количество ${i + 1}`} placeholder="кол-во" inputMode="decimal" value={r.quantity} onChange={(e) => setRow(i, { quantity: e.target.value })} className="w-20" />
-              <Select aria-label={`Единица ${i + 1}`} value={r.unit} onChange={(e) => setRow(i, { unit: e.target.value })} className="w-20">
-                {UNITS.map((u) => (
-                  <option key={u} value={u}>
-                    {u || '—'}
-                  </option>
-                ))}
-              </Select>
+              <div className="w-[4.5rem] shrink-0">
+                <Input aria-label={`Количество ${i + 1}`} placeholder="кол-во" inputMode="decimal" value={r.quantity} onChange={(e) => setRow(i, { quantity: e.target.value })} />
+              </div>
+              <div className="w-[4.5rem] shrink-0">
+                <Select aria-label={`Единица ${i + 1}`} value={r.unit} onChange={(e) => setRow(i, { unit: e.target.value })}>
+                  {UNITS.map((u) => (
+                    <option key={u} value={u}>
+                      {u || '—'}
+                    </option>
+                  ))}
+                </Select>
+              </div>
               <button type="button" aria-label="Убрать ингредиент" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="grid size-11 shrink-0 place-items-center rounded-xl text-muted hover:bg-surface-2">
                 <Trash2 className="size-4" />
               </button>

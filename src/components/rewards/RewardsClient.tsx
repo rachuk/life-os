@@ -35,7 +35,7 @@ export function RewardsClient({ data }: { data: RewardsSummary }) {
     return (
       <Card>
         <EmptyState title="Награды выключены" icon={<Gift className="size-6" />}>
-          На этом сервере раздел наград отключён (ENABLE_REWARDS=false). Ничего не начисляется и не учитывается.
+          На этом сервере раздел наград выключен. Ничего не начисляется и не учитывается.
         </EmptyState>
       </Card>
     );
@@ -167,7 +167,7 @@ export function RewardsClient({ data }: { data: RewardsSummary }) {
         ) : (
           <Card>
             <EmptyState title="Желаний пока нет" icon={<Gift className="size-6" />} action={<Button variant="primary" onClick={() => setSheet({ type: 'goal', goal: null })}>Добавить желание</Button>}>
-              Например, приставка, поездка или одежда — с примерной ценой в евро. Отдых не нужно «заслуживать».
+              Например, приставка, поездка или одежда — с примерной ценой в евро.
             </EmptyState>
           </Card>
         )}
@@ -315,7 +315,7 @@ function Stat({ label, value, hint, strong }: { label: string; value: string; hi
     <div className="rounded-xl bg-surface-2 p-2.5">
       <dt className="text-xs text-muted">{label}</dt>
       <dd className={cn('text-base', strong ? 'font-semibold' : 'font-medium')}>{value}</dd>
-      <dd className="text-[11px] text-faint">{hint}</dd>
+      <dd className="text-xs text-muted">{hint}</dd>
     </div>
   );
 }

@@ -47,9 +47,9 @@ export function NotificationsClient({ items }: { items: InAppNotification[] }) {
 
   return (
     <div className="space-y-5">
-      <header className="flex items-end justify-between">
+      <header className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Уведомления</h1>
-        <Link href="/settings#notifications" className="text-sm text-accent">
+        <Link href="/settings#notifications" className="-mr-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl px-2 text-sm font-medium text-accent hover:bg-surface-2">
           Настройки
         </Link>
       </header>

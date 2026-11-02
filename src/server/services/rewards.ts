@@ -56,7 +56,7 @@ export async function updateRewardsSettings(tx: Tx, userId: string, patch: z.inf
 }
 
 function assertEnabled(): void {
-  if (!rewardsEnabled()) throw new AppError('REWARDS_DISABLED', 'Награды выключены на этом сервере (ENABLE_REWARDS=false)', 409);
+  if (!rewardsEnabled()) throw new AppError('REWARDS_DISABLED', 'Награды выключены на этом сервере', 409);
 }
 
 // ---------------------------------------------------------------------------

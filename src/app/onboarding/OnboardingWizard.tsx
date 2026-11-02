@@ -2,7 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { DateTime } from 'luxon';
-import { buildTemplates, checkMorning, parseMealWindows, parseNotificationPrefs, parseWeeklyTargets, type RoutinePrefs } from '@/domain/planner/prefs';
+import { buildTemplates, checkMorning, parseMealWindows, parseNotificationPrefs, parseWeeklyTargets, weekendWake, workdayWake, type RoutinePrefs } from '@/domain/planner/prefs';
 import { materializeRange } from '@/domain/planner/materialize';
 import { addDays, formatRange, isoWeekday, weekdayShort, weekStartOf } from '@/domain/time';
 import { api, errorMessage } from '@/lib/api';
@@ -40,13 +40,26 @@ type Form = {
   privacy: Record<string, unknown>;
 };
 
-const STEPS = ['Работа', 'Утро и сон', 'Еда', 'Движение', 'Привычки', 'Распорядок'] as const;
+const STEPS = ['О тебе и работа', 'Утро и сон', 'Еда', 'Движение и свои проекты', 'Привычки и напоминания', 'Твой распорядок'] as const;
 const DAYS = [1, 2, 3, 4, 5, 6, 7].map((d) => ({ value: d, label: weekdayShort(d) }));
-const ZONES = ['Europe/Lisbon', 'Europe/London', 'Europe/Madrid', 'Europe/Berlin', 'Europe/Kyiv', 'Europe/Warsaw', 'America/New_York', 'Asia/Dubai'];
+const ZONES: Record<string, string> = {
+  'Europe/Lisbon': 'Лиссабон',
+  'Europe/London': 'Лондон',
+  'Europe/Madrid': 'Мадрид',
+  'Europe/Paris': 'Париж',
+  'Europe/Berlin': 'Берлин',
+  'Europe/Warsaw': 'Варшава',
+  'Europe/Kyiv': 'Киев',
+  'Europe/Istanbul': 'Стамбул',
+  'Asia/Dubai': 'Дубай',
+  'America/New_York': 'Нью-Йорк',
+};
+/** «Лиссабон (Europe/Lisbon)»; an unknown zone falls back to its own city part. */
+const zoneLabel = (z: string) => `${ZONES[z] ?? (z.split('/').pop() ?? z).replace(/_/g, ' ')} (${z})`;
 const HABITS: [string, string, string?][] = [
   ['breakfast', 'Завтрак', 'отметка после еды'],
   ['lunch', 'Обед внутри рабочего дня', 'резерв времени и напоминание'],
-  ['dinner', 'Ужин', 'часто готовит соседка — план просто держит время'],
+  ['dinner', 'Ужин', 'если ужин готовит кто-то другой — план просто держит время'],
   ['snacks', 'Перекусы в рабочие дни'],
   ['water', 'Вода', 'быстрые отметки, без нормы «2 литра»'],
   ['steps', 'Шаги', 'сначала узнаем твой обычный уровень'],
@@ -114,6 +127,9 @@ export function OnboardingWizard({ initial, editing }: { initial: Form; editing:
     }
   }, [prefs, f.habits]);
 
+  /** Wake-up after the night that starts on `date`: weekend wake applies when the next day is a day off. */
+  const wakeAfter = (date: string) => (!prefs ? f.wakeTime : prefs.workDays.includes(isoWeekday(addDays(date, 1))) ? workdayWake(prefs) : weekendWake(prefs));
+
   async function save() {
     setBusy(true);
     setError(null);
@@ -149,9 +165,9 @@ export function OnboardingWizard({ initial, editing }: { initial: Form; editing:
           <>
             <Input label="Как к тебе обращаться (необязательно)" value={f.displayName ?? ''} onChange={(e) => set('displayName', e.target.value || null)} />
             <Select label="Часовой пояс" value={f.timezone} onChange={(e) => set('timezone', e.target.value)}>
-              {[...new Set([f.timezone, ...ZONES])].map((z) => (
+              {[...new Set([f.timezone, ...Object.keys(ZONES)])].map((z) => (
                 <option key={z} value={z}>
-                  {z}
+                  {zoneLabel(z)}
                 </option>
               ))}
             </Select>
@@ -272,19 +288,26 @@ export function OnboardingWizard({ initial, editing }: { initial: Form; editing:
             {sample ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 {[
-                  { title: `Будний день (${weekdayShort(isoWeekday(sample.workDay))})`, list: sample.work },
-                  { title: `Выходной (${weekdayShort(isoWeekday(sample.weekend))})`, list: sample.off },
+                  { title: `Будний день (${weekdayShort(isoWeekday(sample.workDay))})`, date: sample.workDay, list: sample.work },
+                  { title: `Выходной (${weekdayShort(isoWeekday(sample.weekend))})`, date: sample.weekend, list: sample.off },
                 ].map((col) => (
-                  <div key={col.title}>
+                  <div key={col.title} className="min-w-0">
                     <p className="mb-2 text-sm font-semibold">{col.title}</p>
                     <ul className="space-y-1">
                       {col.list.map((e) => (
-                        <li key={e.originKey} className="flex items-center gap-2 text-sm">
-                          <span className="h-4 w-1 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
-                          <span className="tabular w-24 shrink-0 text-muted">{formatRange(e.startAt, e.endAt, f.timezone)}</span>
-                          <span className="truncate">{e.title}</span>
+                        <li key={e.originKey} className="flex items-start gap-2 text-sm">
+                          <span className="mt-0.5 h-4 w-1 shrink-0 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
+                          <span className="tabular w-28 shrink-0 text-muted">{formatRange(e.startAt, e.endAt, f.timezone)}</span>
+                          <span className="min-w-0 flex-1 break-words">{e.title}</span>
                         </li>
                       ))}
+                      <li className="flex items-start gap-2 text-sm">
+                        <span className="mt-0.5 h-4 w-1 shrink-0 rounded-full" style={{ background: KIND_COLOR.sleep }} />
+                        <span className="tabular w-28 shrink-0 text-muted">
+                          {f.bedTime} → {wakeAfter(col.date)}
+                        </span>
+                        <span className="min-w-0 flex-1 break-words">Сон</span>
+                      </li>
                     </ul>
                   </div>
                 ))}

@@ -37,7 +37,35 @@ function ShellInner({ children, aside, unread, displayName, today }: ShellProps)
   const [extraOpen, setExtraOpen] = useState(false);
   const [extraMinutes, setExtraMinutes] = useState<number | undefined>(undefined);
   const [captureItem, setCaptureItem] = useState<string | undefined>(undefined);
+  const wide = pathname.startsWith('/plan');
   const openC = useCallback(() => setCaptureOpen(true), []);
+
+  // keyboard: N or ⌘/Ctrl+K — quick capture, W — «Нужно поработать» (desktop)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCaptureItem(undefined);
+        setCaptureOpen(true);
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey || document.querySelector('dialog[open]')) return;
+      const k = e.key.toLowerCase();
+      if (k === 'n' || k === 'т') {
+        e.preventDefault();
+        setCaptureItem(undefined);
+        setCaptureOpen(true);
+      } else if (k === 'w' || k === 'ц') {
+        e.preventDefault();
+        setExtraMinutes(undefined);
+        setExtraOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const openX = useCallback(() => setExtraOpen(true), []);
 
   useEffect(() => {
@@ -63,7 +91,8 @@ function ShellInner({ children, aside, unread, displayName, today }: ShellProps)
   };
 
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[232px_minmax(0,1fr)] xl:grid-cols-[232px_minmax(0,1fr)_340px]">
+    <div className={cn("min-h-dvh lg:grid lg:grid-cols-[232px_minmax(0,1fr)]", !wide && !pathname.startsWith("/today") && "xl:grid-cols-[232px_minmax(0,1fr)_340px]")}>
+      <a href="#main" className="skip-link rounded-xl bg-accent px-4 py-2 text-sm font-medium text-accent-fg">Перейти к содержимому</a>
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-dvh flex-col border-r border-border bg-surface px-3 py-5 lg:flex">
         <Link href="/today" className="mb-6 flex items-center gap-2 px-3 text-[17px] font-semibold">
@@ -116,18 +145,18 @@ function ShellInner({ children, aside, unread, displayName, today }: ShellProps)
             {unread ? <span className="absolute right-2 top-2 size-2.5 rounded-full bg-accent" /> : null}
           </Link>
         </header>
-        <main className="mx-auto w-full max-w-3xl px-4 xl:max-w-4xl pb-[calc(110px+env(safe-area-inset-bottom))] pt-4 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
+        <main id="main" tabIndex={-1} className={cn("mx-auto w-full px-4 pb-[calc(150px+env(safe-area-inset-bottom))] pt-4 outline-none lg:px-8 lg:pb-12 lg:pt-8", wide ? "max-w-6xl" : "max-w-3xl xl:max-w-4xl")}>{children}</main>
       </div>
 
-      {/* Desktop context panel */}
-      {aside ? <aside className="sticky top-0 hidden h-dvh overflow-y-auto border-l border-border bg-surface/50 p-5 xl:block">{aside}</aside> : null}
+      {/* Desktop context panel (not on screens where it would repeat the main content) */}
+      {aside && !wide && !pathname.startsWith('/today') ? <aside className="sticky top-0 hidden h-dvh overflow-y-auto border-l border-border bg-surface/50 p-5 xl:block">{aside}</aside> : null}
 
       {/* Mobile FAB + bottom tabs */}
       <button
         type="button"
         onClick={() => { setCaptureItem(undefined); setCaptureOpen(true); }}
         aria-label="Быстрый ввод: текст, голос или фото"
-        className="fixed bottom-[calc(76px+env(safe-area-inset-bottom))] right-4 z-40 grid size-14 place-items-center rounded-full bg-accent text-accent-fg shadow-lg hover:bg-accent-hover lg:hidden"
+        className="lifeos-fab fixed bottom-[calc(76px+env(safe-area-inset-bottom))] right-4 z-40 grid size-14 place-items-center rounded-full bg-accent text-accent-fg shadow-lg hover:bg-accent-hover lg:hidden"
       >
         <Plus className="size-7" />
       </button>

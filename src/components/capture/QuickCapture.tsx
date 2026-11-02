@@ -65,6 +65,12 @@ function ProposalEditor({ p, selected, onToggle, onChange }: { p: Proposal; sele
           ) : (
             <p className="text-[15px] font-medium">{titleOf(a)}</p>
           )}
+          {(a.type === 'create_task' || a.type === 'schedule_workout') && a.dateLocal ? (
+            <p className="text-sm font-medium text-accent">
+              {formatDateRu(a.dateLocal)}
+              {a.timeLocal ? `, ${a.timeLocal}` : ''}
+            </p>
+          ) : null}
           {a.type === 'create_task' || a.type === 'schedule_workout' ? (
             <div className="flex flex-wrap gap-2">
               <Input type="date" aria-label="Дата" value={a.dateLocal ?? ''} onChange={(e) => set({ dateLocal: e.target.value || null } as Partial<ProposedAction>)} className="w-auto" />
@@ -176,7 +182,23 @@ export function QuickCapture({ open, onClose, itemId }: { open: boolean; onClose
       router.refresh();
       onClose();
       const n = res.applied.length;
-      toast.ok(res.alreadyProcessed ? 'Уже было сохранено' : n ? `Готово: ${n} ${n === 1 ? 'действие' : n < 5 ? 'действия' : 'действий'}` : 'Ничего не выбрано');
+      const parts = res.applied.slice(0, 3).map((p) => {
+        const a = p.action;
+        if (a.type === 'create_task') return `дело${a.dateLocal ? ` на ${formatDateRu(a.dateLocal)}` : ''}`;
+        if (a.type === 'add_shopping_item') return `${a.title} → покупки`;
+        if (a.type === 'schedule_workout') return `тренировка${a.dateLocal ? ` ${formatDateRu(a.dateLocal)}` : ''}`;
+        if (a.type === 'idea') return 'идея';
+        if (a.type === 'log_weight') return `вес ${String(a.value).replace('.', ',')} кг`;
+        if (a.type === 'log_steps') return 'шаги';
+        return ACTION_LABELS[a.type].toLowerCase();
+      });
+      toast.ok(
+        res.alreadyProcessed
+          ? 'Уже было сохранено'
+          : n
+            ? `Сохранено: ${parts.join(' · ')}${n > 3 ? ` и ещё ${n - 3}` : ''}`
+            : 'Ничего не выбрано',
+      );
       const xw = res.deferred.find((d) => d.action.type === 'extra_work');
       if (xw && xw.action.type === 'extra_work') setTimeout(() => openExtraWork(xw.action.type === 'extra_work' ? xw.action.durationMinutes : undefined), 300);
     } catch (e) {
@@ -237,7 +259,10 @@ export function QuickCapture({ open, onClose, itemId }: { open: boolean; onClose
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        if (item && item.processingStatus === 'proposed') toast.info('Сохранил во входящие — подтвердить можно позже в «Делах»');
+        onClose();
+      }}
       title={item ? 'Проверь и подтверди' : 'Быстрый ввод'}
       description={item ? 'Ничего не сохранится, пока ты не подтвердишь.' : 'Дела, покупки, идеи, вес, шаги — одним сообщением.'}
       footer={
@@ -289,7 +314,7 @@ export function QuickCapture({ open, onClose, itemId }: { open: boolean; onClose
       {!item ? (
         <div className="space-y-2">
           <Textarea
-            autoFocus
+            data-autofocus
             aria-label="Текст"
             placeholder={'Например: завтра написать брокеру, купить бананы и молоко, в четверг в зал в 21'}
             value={text}
@@ -300,7 +325,7 @@ export function QuickCapture({ open, onClose, itemId }: { open: boolean; onClose
             }}
           />
           {recording ? <p className="text-sm text-danger">● Идёт запись…</p> : null}
-          <p className="text-xs text-muted">⌘/Ctrl + Enter — разобрать. Рабочие задачи — нейтрально, без названий клиентов.</p>
+          <p className="hidden text-xs text-muted [@media(hover:hover)]:block">⌘/Ctrl + Enter — разобрать.</p>
         </div>
       ) : (
         <div className="space-y-3">

@@ -1,4 +1,5 @@
 'use client';
+import { ChevronDown } from 'lucide-react';
 import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cn } from './cn';
 
@@ -58,9 +59,12 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
     const auto = useId();
     const iid = id ?? auto;
     const el = (
-      <select ref={ref} id={iid} className={cn(control, 'appearance-none bg-[length:16px] pr-8', className)} {...rest}>
-        {children}
-      </select>
+      <div className={cn('relative w-full', className)}>
+        <select ref={ref} id={iid} className={cn(control, 'appearance-none pr-9')} {...rest}>
+          {children}
+        </select>
+        <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+      </div>
     );
     return label ? (
       <Field label={label} hint={hint} error={error} htmlFor={iid}>
@@ -87,7 +91,10 @@ export function Switch({ checked, onChange, label, description, disabled }: { ch
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={cn('relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50', checked ? 'bg-accent' : 'bg-surface-3')}
+        className={cn(
+          "relative h-7 w-12 shrink-0 rounded-full transition-colors before:absolute before:-inset-2 before:content-[''] disabled:opacity-50",
+          checked ? 'bg-accent' : 'bg-surface-3',
+        )}
       >
         <span className={cn('absolute left-0 top-0.5 size-6 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-5.5' : 'translate-x-0.5')} />
       </button>
@@ -119,7 +126,7 @@ export function Chips<T extends string | number>({
             aria-pressed={on}
             onClick={() => onChange(multiple ? (on ? value.filter((v) => v !== o.value) : [...value, o.value]) : [o.value])}
             className={cn(
-              'min-h-10 rounded-full border px-3.5 text-sm font-medium transition-colors',
+              'min-h-11 rounded-full border px-3.5 text-sm font-medium transition-colors',
               on ? 'border-accent bg-accent text-accent-fg' : 'border-border bg-surface text-text hover:bg-surface-2',
             )}
           >

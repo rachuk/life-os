@@ -77,6 +77,20 @@ services:
     mem_limit: 256m
     networks: [internal]
 
+  # Free speech-to-text for voice messages (OpenAI-compatible /v1/audio/transcriptions, faster-whisper on CPU).
+  # Not started by default. Enable: docker compose --profile voice up -d whisper
+  # then in .env: AI_TRANSCRIBE_BASE_URL=http://whisper:8000/v1, AI_TRANSCRIBE_MODEL=Systran/faster-whisper-small
+  # and download the model once: docker compose exec whisper curl -X POST http://localhost:8000/v1/models/Systran/faster-whisper-small
+  whisper:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    profiles: [voice]
+    restart: unless-stopped
+    volumes:
+      - lifeos-whisper-models:/home/ubuntu/.cache/huggingface
+    mem_limit: 1536m
+    cpus: 2
+    networks: [internal]
+
 networks:
   internal: {}
   web:
@@ -85,3 +99,4 @@ networks:
 volumes:
   lifeos-db:
   lifeos-media:
+  lifeos-whisper-models:

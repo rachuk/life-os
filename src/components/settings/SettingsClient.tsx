@@ -1,5 +1,5 @@
 'use client';
-import { Download, LogOut, Moon, Smartphone, Sun, SunMoon } from 'lucide-react';
+import { ChevronDown, Download, FileSpreadsheet, LogOut, Moon, Sun, SunMoon, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -9,11 +9,14 @@ import { formatTime, formatDateShortRu, localDateOf } from '@/domain/time';
 import { api, errorMessage } from '@/lib/api';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Card, Section } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Input, Switch } from '@/components/ui/Field';
 import { Segmented } from '@/components/ui/Segmented';
+import { Sheet } from '@/components/ui/Sheet';
 import { Notice } from '@/components/ui/States';
 import { useToast } from '@/components/ui/Toaster';
+import { cn } from '@/components/ui/cn';
+import { InstallHint } from '@/components/more/MoreClient';
 
 interface Privacy {
   bodyPhotosOptIn: boolean;
@@ -39,16 +42,60 @@ interface Diag {
   title: string;
 }
 
-const STATUS_RU: Record<string, string> = {
-  scheduled: 'запланировано',
-  sent: 'отправлено',
-  delivered_unknown: 'принято push-сервисом',
-  failed: 'ошибка',
-  acknowledged: 'отвечено',
-  cancelled: 'отменено',
-  skipped: 'пропущено',
-};
+type Tone = 'neutral' | 'ok' | 'warn' | 'danger';
+
+const SECTIONS = [
+  { id: 'routine', label: 'Распорядок' },
+  { id: 'notifications', label: 'Уведомления' },
+  { id: 'privacy', label: 'Приватность' },
+  { id: 'data', label: 'Данные' },
+  { id: 'about', label: 'О приложении' },
+] as const;
+
 const CHANNEL_RU: Record<string, string> = { in_app: 'в приложении', telegram: 'Telegram', web_push: 'push' };
+
+const STATUS_RU: Record<string, { label: string; tone: Tone }> = {
+  scheduled: { label: 'запланировано', tone: 'neutral' },
+  sent: { label: 'отправлено', tone: 'neutral' },
+  delivered_unknown: { label: 'передано push-сервису', tone: 'neutral' },
+  failed: { label: 'не удалось отправить', tone: 'danger' },
+  acknowledged: { label: 'отвечено', tone: 'ok' },
+  cancelled: { label: 'отменено', tone: 'neutral' },
+  skipped: { label: 'пропущено', tone: 'neutral' },
+};
+
+const REASON_RU: Record<string, { label: string; tone: Tone }> = {
+  answered_or_removed: { label: 'уже отмечено', tone: 'ok' },
+  plan_changed: { label: 'план изменился', tone: 'neutral' },
+  stale: { label: 'пропущено: устарело', tone: 'neutral' },
+  quiet_hours: { label: 'тихие часы', tone: 'neutral' },
+  daily_limit: { label: 'дневной лимит', tone: 'neutral' },
+  telegram_disconnected: { label: 'Telegram отключён', tone: 'neutral' },
+  no_push_subscription: { label: 'нет подписки на push', tone: 'neutral' },
+};
+
+/** A scheduled reminder this much past its time was not sent (worker down or backlog). */
+const OVERDUE_MS = 5 * 60_000;
+
+/** Human state of one outbox row — never raw codes like `answered:complete`. */
+function deliveryState(d: Diag, nowMs: number): { label: string; tone: Tone } {
+  if (d.status === 'scheduled') {
+    return new Date(d.scheduledAt).getTime() < nowMs - OVERDUE_MS ? { label: 'не отправлено', tone: 'warn' } : STATUS_RU.scheduled!;
+  }
+  if ((d.status === 'cancelled' || d.status === 'skipped') && d.cancelReason) {
+    if (d.cancelReason.startsWith('answered:')) return { label: 'отвечено в приложении', tone: 'ok' };
+    const r = REASON_RU[d.cancelReason];
+    if (r) return r;
+  }
+  return STATUS_RU[d.status] ?? { label: 'неизвестно', tone: 'neutral' };
+}
+
+function errorHint(d: Diag): string | null {
+  if (!d.lastError) return null;
+  if (/not configured/i.test(d.lastError)) return 'канал не настроен на сервере';
+  if (/^push/i.test(d.lastError)) return 'push-сервис не принял';
+  return 'ошибка отправки';
+}
 
 function readTheme(): 'system' | 'light' | 'dark' {
   try {
@@ -66,7 +113,6 @@ function subscribeTheme(cb: () => void) {
 
 function ThemeSwitch() {
   const theme = useSyncExternalStore(subscribeTheme, readTheme, () => 'system' as const);
-  const setTheme = (_t: 'system' | 'light' | 'dark') => themeListeners.forEach((l) => l());
   const apply = (t: 'system' | 'light' | 'dark') => {
     try {
       if (t === 'system') localStorage.removeItem('lifeos-theme');
@@ -76,7 +122,7 @@ function ThemeSwitch() {
     }
     if (t === 'system') delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = t;
-    setTheme(t);
+    themeListeners.forEach((l) => l());
   };
   return (
     <Segmented
@@ -92,12 +138,43 @@ function ThemeSwitch() {
   );
 }
 
+function SettingsSection({ id, title, note, children }: { id: string; title: string; note?: ReactNode; children: ReactNode }) {
+  return (
+    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-20 space-y-2 lg:scroll-mt-8">
+      <div className="flex items-baseline justify-between gap-3 px-1">
+        <h2 id={`${id}-title`} className="text-[13px] font-semibold uppercase tracking-wide text-muted">
+          {title}
+        </h2>
+        {note ? <span className="text-xs text-muted">{note}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Compares only what the notifications form edits, so key order from the server never fakes «unsaved». */
+function notificationsSig(n: NotificationPrefs, quiet: { start: string; end: string } | null): string {
+  return JSON.stringify([
+    n.channels.telegram,
+    n.channels.web_push,
+    n.snackReminders,
+    n.sleepReminder,
+    n.repeatMinutes,
+    n.maxRepeats,
+    n.maxPerDay,
+    n.workoutLeadMinutes,
+    quiet?.start ?? null,
+    quiet?.end ?? null,
+  ]);
+}
+
 export function SettingsClient({
   email,
   privacy: initialPrivacy,
   notifications,
   quietHours,
   tz,
+  nowIso,
   diagnostics,
   integrations,
   channels,
@@ -107,6 +184,7 @@ export function SettingsClient({
   notifications: NotificationPrefs;
   quietHours: { start: string; end: string } | null;
   tz: string;
+  nowIso: string;
   diagnostics: Diag[];
   integrations: IntegrationStatus[];
   channels: ReactNode;
@@ -117,8 +195,18 @@ export function SettingsClient({
   const [n, setN] = useState(notifications);
   const [quiet, setQuiet] = useState(quietHours);
   const [savingN, setSavingN] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState('');
-  const [deleting, setDeleting] = useState(false);
+  const [logShown, setLogShown] = useState(false);
+
+  const dirty = notificationsSig(n, quiet) !== notificationsSig(notifications, quietHours);
+  const integration = (key: string) => integrations.find((i) => i.key === key);
+  const ready = (key: string) => {
+    const i = integration(key);
+    return !!i && i.enabled && i.configured;
+  };
+  const aiConfigured = (key: string) => integration(key)?.configured ?? false;
+  const tgReady = ready('telegram');
+  const pushReady = ready('web_push');
+  const nowMs = new Date(nowIso).getTime();
 
   async function patchPrivacy(patch: Partial<Privacy>) {
     const prev = privacy;
@@ -136,7 +224,7 @@ export function SettingsClient({
     setSavingN(true);
     try {
       await api('/api/me/notifications', { method: 'PATCH', body: { notifications: n, quietHours: quiet } });
-      toast.ok('Настройки уведомлений сохранены, напоминания пересчитаны');
+      toast.ok('Уведомления сохранены, напоминания пересчитаны');
       router.refresh();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -151,48 +239,76 @@ export function SettingsClient({
     router.refresh();
   }
 
-  async function deleteAll() {
-    setDeleting(true);
-    try {
-      await api('/api/me/data', { method: 'DELETE', body: { confirm: confirmDelete } });
-      router.replace('/login');
-      router.refresh();
-    } catch (e) {
-      toast.error(errorMessage(e));
-      setDeleting(false);
-    }
-  }
-
-  const aiConfigured = (key: string) => integrations.find((i) => i.key === key)?.configured ?? false;
-
   return (
     <div className="space-y-7">
-      <header>
-        <h1 className="text-2xl font-semibold">Настройки</h1>
-        <p className="text-sm text-muted">{email}</p>
+      <header className="space-y-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Настройки</h1>
+          <p className="text-sm text-muted">{email}</p>
+        </div>
+        <nav aria-label="Разделы настроек" className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:px-0">
+          <ul className="flex w-max gap-1.5">
+            {SECTIONS.map((s) => (
+              <li key={s.id}>
+                <a href={`#${s.id}`} className="group flex min-h-11 items-center">
+                  <span className="rounded-full border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text group-hover:bg-surface-2">{s.label}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
       </header>
 
-      <Section title="Распорядок">
+      <SettingsSection id="routine" title="Распорядок">
         <Card className="space-y-3 p-4">
-          <p className="text-sm text-muted">Рабочий график, утро, сон, еда, тренировки, свои проекты и пробные привычки. После сохранения будущие нетронутые блоки перестроятся.</p>
+          <p className="max-w-prose text-sm text-muted">Рабочий график, утро, сон, еда, тренировки, свои проекты и пробные привычки. После сохранения будущие нетронутые блоки перестроятся.</p>
           <Link href="/onboarding" className="inline-flex min-h-11 items-center rounded-xl bg-accent-soft px-4 text-[15px] font-medium text-accent">
             Изменить распорядок
           </Link>
         </Card>
-      </Section>
+      </SettingsSection>
 
-      <Section title="Уведомления">
-        <Card id="notifications" className="space-y-4 p-4">
-          <p className="text-sm text-muted">Внутри приложения напоминания приходят всегда (колокольчик). Telegram и push — когда подключены. Если подключены оба, push используется только при неактивном Telegram, чтобы не дублировать.</p>
-          <div className="divide-y divide-border">
-            <Switch label="Telegram" checked={n.channels.telegram} onChange={(v) => setN({ ...n, channels: { ...n.channels, telegram: v } })} />
-            <Switch label="Push в браузере / PWA" checked={n.channels.web_push} onChange={(v) => setN({ ...n, channels: { ...n.channels, web_push: v } })} />
-            <Switch label="Напоминание о перекусах" checked={n.snackReminders} onChange={(v) => setN({ ...n, snackReminders: v })} />
-            <Switch label="Напоминание «скоро отбой»" checked={n.sleepReminder} onChange={(v) => setN({ ...n, sleepReminder: v })} />
+      <SettingsSection id="notifications" title="Уведомления">
+        <Card className="space-y-4 p-4">
+          <p className="max-w-prose text-sm text-muted">
+            В приложении (колокольчик) напоминания приходят всегда. Telegram и push — дополнительно, когда подключены; если подключены оба, push идёт только при неактивном Telegram.
+          </p>
+
+          <div>
+            <h3 className="text-sm font-semibold">Каналы</h3>
+            <div className="divide-y divide-border">
+              <div className={cn(!tgReady && 'opacity-60')}>
+                <Switch
+                  label="Telegram"
+                  description={tgReady ? undefined : 'Telegram не настроен на сервере'}
+                  disabled={!tgReady}
+                  checked={tgReady && n.channels.telegram}
+                  onChange={(v) => setN({ ...n, channels: { ...n.channels, telegram: v } })}
+                />
+              </div>
+              <div className={cn(!pushReady && 'opacity-60')}>
+                <Switch
+                  label="Push в браузере / на iPhone"
+                  description={pushReady ? undefined : 'Push не настроен на сервере'}
+                  disabled={!pushReady}
+                  checked={pushReady && n.channels.web_push}
+                  onChange={(v) => setN({ ...n, channels: { ...n.channels, web_push: v } })}
+                />
+              </div>
+            </div>
           </div>
+
+          <div>
+            <h3 className="text-sm font-semibold">Что напоминать</h3>
+            <div className="divide-y divide-border">
+              <Switch label="Перекусы" checked={n.snackReminders} onChange={(v) => setN({ ...n, snackReminders: v })} />
+              <Switch label="«Скоро отбой»" checked={n.sleepReminder} onChange={(v) => setN({ ...n, sleepReminder: v })} />
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <Input type="number" label="Повтор важного через, мин" min={5} max={60} value={n.repeatMinutes} onChange={(e) => setN({ ...n, repeatMinutes: Number(e.target.value) || 15 })} />
-            <Input type="number" label="Повторов" hint="0 или 1 (не больше одного)" min={0} max={1} value={n.maxRepeats} onChange={(e) => setN({ ...n, maxRepeats: Math.min(1, Math.max(0, Number(e.target.value) || 0)) })} />
+            <Input type="number" label="Повторов" hint="0 или 1" min={0} max={1} value={n.maxRepeats} onChange={(e) => setN({ ...n, maxRepeats: Math.min(1, Math.max(0, Number(e.target.value) || 0)) })} />
             <Input type="number" label="Не больше сообщений в день" min={1} max={50} value={n.maxPerDay} onChange={(e) => setN({ ...n, maxPerDay: Number(e.target.value) || 14 })} />
             <Input type="number" label="Тренировка: напомнить за, мин" min={0} max={120} value={n.workoutLeadMinutes} onChange={(e) => setN({ ...n, workoutLeadMinutes: Number(e.target.value) || 0 })} />
           </div>
@@ -203,15 +319,67 @@ export function SettingsClient({
               <Input type="time" label="До" value={quiet.end} onChange={(e) => setQuiet({ ...quiet, end: e.target.value })} />
             </div>
           ) : null}
-          <Button variant="primary" loading={savingN} onClick={saveNotifications}>
-            Сохранить уведомления
-          </Button>
-          <p className="text-xs text-muted">Для пробуждения используй будильник iPhone — Telegram и push не гарантируют громкий сигнал.</p>
-        </Card>
-        {channels}
-      </Section>
 
-      <Section title="Приватность и ИИ">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border pt-4">
+            <Button variant="primary" loading={savingN} disabled={!dirty} onClick={saveNotifications}>
+              Сохранить уведомления
+            </Button>
+            <p className={cn('text-sm', dirty ? 'text-warn' : 'text-muted')} aria-live="polite">
+              {dirty ? 'Есть несохранённые изменения' : 'Изменения в этом блоке сохраняются кнопкой'}
+            </p>
+          </div>
+        </Card>
+
+        {channels}
+
+        <Card className="p-1.5">
+          <button
+            type="button"
+            onClick={() => setLogShown((v) => !v)}
+            aria-expanded={logShown}
+            aria-controls="delivery-log"
+            className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-3 text-left hover:bg-surface-2"
+          >
+            <span>
+              <span className="block text-[15px] font-medium">Журнал доставки</span>
+              <span className="block text-xs text-muted">Последние напоминания и что с ними стало</span>
+            </span>
+            <ChevronDown className={cn('size-4 shrink-0 text-muted transition-transform', logShown && 'rotate-180')} />
+          </button>
+          {logShown ? (
+            diagnostics.length ? (
+              <ul id="delivery-log" className="divide-y divide-border border-t border-border text-sm">
+                {diagnostics.map((d) => {
+                  const st = deliveryState(d, nowMs);
+                  const err = d.status === 'failed' || d.status === 'scheduled' ? errorHint(d) : null;
+                  return (
+                    <li key={d.id} className="px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 truncate">{d.title || 'Напоминание'}</p>
+                        <Badge tone={st.tone} className="shrink-0 whitespace-nowrap">
+                          {st.label}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted">
+                        {CHANNEL_RU[d.channel] ?? 'канал'} · {formatDateShortRu(localDateOf(d.scheduledAt, tz))} {formatTime(d.scheduledAt, tz)}
+                        {d.reminderType === 'repeat' ? ' · повтор' : ''}
+                        {err ? ` · ${err}` : ''}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p id="delivery-log" className="border-t border-border px-3 py-3 text-sm text-muted">
+                Пока нет запланированных напоминаний.
+              </p>
+            )
+          ) : null}
+        </Card>
+        <p className="max-w-prose px-1 text-xs text-muted">Для пробуждения используй будильник iPhone — Telegram и push не гарантируют громкий сигнал.</p>
+      </SettingsSection>
+
+      <SettingsSection id="privacy" title="Приватность и ИИ" note="сохраняется сразу">
         <Card className="divide-y divide-border px-4">
           <Switch
             label="Разбирать текст с помощью ИИ"
@@ -256,89 +424,118 @@ export function SettingsClient({
             />
           </div>
         </Card>
-      </Section>
+      </SettingsSection>
 
-      <Section title="Интеграции">
+      <SettingsSection id="data" title="Мои данные">
+        <DataRights />
+      </SettingsSection>
+
+      <SettingsSection id="about" title="О приложении">
+        <Card className="space-y-2 p-4">
+          <p className="text-sm font-medium">Тема</p>
+          <ThemeSwitch />
+        </Card>
+        <InstallHint />
         <Card className="divide-y divide-border">
+          <p className="px-4 pb-1 pt-3 text-sm font-medium">Подключения сервера</p>
           {integrations.map((i) => (
             <div key={i.key} className="flex items-start justify-between gap-3 px-4 py-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-[15px]">{i.label}</p>
                 <p className="text-xs text-muted">{i.detail}</p>
               </div>
-              <Badge tone={i.configured && i.enabled ? 'ok' : 'neutral'}>{!i.enabled ? 'выключено' : i.configured ? 'подключено' : 'не подключено'}</Badge>
+              <Badge tone={i.configured && i.enabled ? 'ok' : 'neutral'} className="shrink-0">
+                {!i.enabled ? 'выключено' : i.configured ? 'подключено' : 'не настроено'}
+              </Badge>
             </div>
           ))}
         </Card>
-      </Section>
-
-      <Section title="Установка на iPhone">
-        <Card className="space-y-2 p-4 text-sm">
-          <p className="flex items-center gap-2 font-medium">
-            <Smartphone className="size-4" /> Добавь Life OS на экран «Домой»
-          </p>
-          <ol className="list-decimal space-y-1 pl-5 text-muted">
-            <li>Открой сайт в Safari.</li>
-            <li>Нажми «Поделиться» → «На экран „Домой“».</li>
-            <li>Запусти Life OS с иконки — после этого можно включить push.</li>
-          </ol>
-          <p className="text-xs text-faint">Это веб-приложение (PWA), не приложение из App Store.</p>
-        </Card>
-      </Section>
-
-      <Section title="Внешний вид">
-        <Card className="p-4">
-          <ThemeSwitch />
-        </Card>
-      </Section>
-
-      <Section title="Доставка уведомлений">
-        <Card className="p-1.5">
-          {diagnostics.length ? (
-            <ul className="divide-y divide-border text-sm">
-              {diagnostics.map((d) => (
-                <li key={d.id} className="flex items-start justify-between gap-3 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="truncate">{d.title || d.reminderType}</p>
-                    <p className="text-xs text-muted">
-                      {CHANNEL_RU[d.channel] ?? d.channel} · {formatDateShortRu(localDateOf(d.scheduledAt, tz))} {formatTime(d.scheduledAt, tz)}
-                      {d.reminderType === 'repeat' ? ' · повтор' : ''}
-                      {d.lastError ? ` · ${d.lastError}` : ''}
-                      {d.cancelReason ? ` · ${d.cancelReason}` : ''}
-                    </p>
-                  </div>
-                  <Badge tone={d.status === 'failed' ? 'danger' : d.status === 'acknowledged' ? 'ok' : 'neutral'}>{STATUS_RU[d.status] ?? d.status}</Badge>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="px-3 py-3 text-sm text-muted">Пока нет запланированных напоминаний.</p>
-          )}
-        </Card>
-      </Section>
-
-      <Section title="Мои данные">
-        <Card className="space-y-4 p-4">
-          <a href="/api/export" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border px-4 text-[15px] font-medium hover:bg-surface-2">
-            <Download className="size-4" /> Скачать все данные (JSON)
-          </a>
-          <div className="space-y-2 rounded-xl bg-danger-soft p-3">
-            <p className="text-sm font-medium text-danger">Удалить аккаунт и все данные</p>
-            <p className="text-xs text-danger">Удаляются все записи и приватные файлы. Сначала скачай экспорт. Чтобы подтвердить, введи УДАЛИТЬ.</p>
-            <div className="flex gap-2">
-              <Input aria-label="Подтверждение удаления" value={confirmDelete} onChange={(e) => setConfirmDelete(e.target.value)} placeholder="УДАЛИТЬ" />
-              <Button variant="danger" loading={deleting} disabled={confirmDelete !== 'УДАЛИТЬ'} onClick={deleteAll}>
-                Удалить
-              </Button>
-            </div>
-          </div>
-        </Card>
-      </Section>
-
-      <Button variant="ghost" icon={<LogOut className="size-4" />} onClick={logout}>
-        Выйти
-      </Button>
-      {integrations.every((i) => !i.configured) ? <Notice>Сейчас работает ручной режим без внешних ключей: все функции сохраняют данные, ИИ и Telegram просто не используются.</Notice> : null}
+        {integrations.every((i) => !i.configured) ? (
+          <Notice>Внешние сервисы не подключены. Всё работает и сохраняется: напоминания приходят в приложении, записи разбираются по правилам.</Notice>
+        ) : null}
+        <Button variant="ghost" icon={<LogOut className="size-4" />} onClick={logout}>
+          Выйти
+        </Button>
+      </SettingsSection>
     </div>
+  );
+}
+
+const CONFIRM = 'УДАЛИТЬ';
+
+function DataRights() {
+  const toast = useToast();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api('/api/me/data', { method: 'DELETE', body: { confirm: text.trim() } });
+      toast.ok('Все данные удалены');
+      router.replace('/login');
+      router.refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Card className="p-4">
+        <p className="max-w-prose text-sm text-muted">Копия только твоих записей. Фото и голос попадают в экспорт как описания, сами файлы скачиваются по одному.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <a href="/api/export" download className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-[15px] font-medium hover:bg-surface-2">
+            <Download className="size-4" /> Экспорт JSON
+          </a>
+          <a
+            href="/api/export?format=csv&table=health_measurements"
+            download
+            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-[15px] font-medium hover:bg-surface-2"
+          >
+            <FileSpreadsheet className="size-4" /> Измерения CSV
+          </a>
+        </div>
+      </Card>
+      <Card className="space-y-3 p-4">
+        <div>
+          <p className="text-[15px] font-medium">Удалить аккаунт и все данные</p>
+          <p className="mt-0.5 max-w-prose text-sm text-muted">Необратимо. Сначала скачай экспорт.</p>
+        </div>
+        <Button variant="danger" icon={<Trash2 className="size-4" />} onClick={() => setOpen(true)}>
+          Удалить все мои данные
+        </Button>
+      </Card>
+      <Sheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Удалить все данные?"
+        description="Это необратимо."
+        footer={
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Отмена
+            </Button>
+            <Button variant="danger" className="flex-1" disabled={text.trim() !== CONFIRM} loading={busy} onClick={remove}>
+              Удалить навсегда
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3 text-sm">
+          {error ? <Notice tone="danger">{error}</Notice> : null}
+          <p>Будут удалены аккаунт, план, дела, привычки, измерения, питание, тренировки, обзоры, награды, подключение Telegram и все приватные файлы (фото, скриншоты, голос).</p>
+          <p className="text-muted">
+            Из рабочей базы и хранилища данные удаляются сразу. Резервные копии сервера не переписываются: удалённое исчезнет из них, когда истечёт срок хранения бэкапов.
+          </p>
+          <Input label={`Чтобы подтвердить, введи ${CONFIRM}`} value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" autoCapitalize="characters" />
+        </div>
+      </Sheet>
+    </>
   );
 }

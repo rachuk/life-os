@@ -4,7 +4,7 @@ import { withSystem, withUser } from '@/server/db';
 import { AppError } from '@/server/http';
 import { addMeasurement, daySummary, healthSummary } from '@/server/services/health';
 import { habitsWeek, listHabits, recordCheckin } from '@/server/services/habits';
-import { listMealTemplates, logMeal, planMeal } from '@/server/services/meals';
+import { listMealTemplates, logMeal, planMeal, undoMealLog } from '@/server/services/meals';
 import { transitionEvent, weekProgress } from '@/server/services/planning';
 import { loadContext, type UserContext } from '@/server/services/profile';
 import { addFromMealTemplates, addShoppingText, setItemChecked, updateItem, weekShopping } from '@/server/services/shopping';
@@ -270,6 +270,47 @@ describe('HEALTH-03: a meal is eaten only after an explicit consumption answer',
     const logs = await withSystem((tx) => tx<{ consumptionStatus: string }[]>`
       select consumption_status from meal_logs where user_id = ${userId} and local_date = '2026-11-02' order by eaten_at`);
     expect(logs.map((l) => l.consumptionStatus)).toEqual(['part', 'not_eaten']);
+  });
+
+  it('«Отменить» after a one-tap «Съел» removes the log and reopens the event; a repeat is 404', async () => {
+    const TUESDAY_0900 = at('2026-11-03T09:00');
+    const breakfast = await eventOf('meal_breakfast', '2026-11-03');
+    expect(breakfast.status).toBe('planned');
+    const log = await as((tx, ctx) => logMeal(tx, ctx, TUESDAY_0900, { eventId: breakfast.id, consumptionStatus: 'all', drinks: [] }));
+    expect((await eventOf('meal_breakfast', '2026-11-03')).status).toBe('completed');
+
+    const r = await as((tx, ctx) => undoMealLog(tx, ctx, TUESDAY_0900, log.id));
+    expect(r.reopened).toBe(true);
+    expect((await eventOf('meal_breakfast', '2026-11-03')).status).toBe('planned');
+    const left = await withSystem((tx) => tx<{ n: number }[]>`select count(*)::int as n from meal_logs where id = ${log.id}`);
+    expect(left[0]!.n).toBe(0);
+
+    const again = await as((tx, ctx) => undoMealLog(tx, ctx, TUESDAY_0900, log.id)).catch((e) => e);
+    expect(again).toBeInstanceOf(AppError);
+    expect((again as AppError).status).toBe(404);
+
+    // «Не ел» is undone the same way: skipped → planned
+    const skip = await as((tx, ctx) => logMeal(tx, ctx, TUESDAY_0900, { eventId: breakfast.id, consumptionStatus: 'not_eaten', drinks: [] }));
+    expect((await eventOf('meal_breakfast', '2026-11-03')).status).toBe('skipped');
+    await as((tx, ctx) => undoMealLog(tx, ctx, TUESDAY_0900, skip.id));
+    expect((await eventOf('meal_breakfast', '2026-11-03')).status).toBe('planned');
+  });
+
+  it('undo leaves an event alone when it was settled by something else', async () => {
+    const TUESDAY_1400 = at('2026-11-03T14:00');
+    const lunch = await eventOf('meal_lunch', '2026-11-03');
+    await as((tx, ctx) => transitionEvent(tx, ctx, TUESDAY_1400, lunch.id, { action: 'complete' }));
+    const log = await as((tx, ctx) => logMeal(tx, ctx, TUESDAY_1400, { eventId: lunch.id, consumptionStatus: 'part', drinks: [] }));
+    const r = await as((tx, ctx) => undoMealLog(tx, ctx, TUESDAY_1400, log.id));
+    expect(r.reopened).toBe(false);
+    expect((await eventOf('meal_lunch', '2026-11-03')).status).toBe('completed');
+
+    // with two answers for one event, removing one keeps the event settled
+    const dinner = await eventOf('meal_dinner', '2026-11-03');
+    const first = await as((tx, ctx) => logMeal(tx, ctx, TUESDAY_2100, { eventId: dinner.id, consumptionStatus: 'all', drinks: [] }));
+    await as((tx, ctx) => logMeal(tx, ctx, TUESDAY_2100, { eventId: dinner.id, consumptionStatus: 'replaced', drinks: [] }));
+    expect((await as((tx, ctx) => undoMealLog(tx, ctx, TUESDAY_2100, first.id))).reopened).toBe(false);
+    expect((await eventOf('meal_dinner', '2026-11-03')).status).toBe('completed');
   });
 
   it('clearing the plan restores the «домашнее блюдо» default', async () => {

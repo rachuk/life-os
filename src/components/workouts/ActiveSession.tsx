@@ -12,7 +12,9 @@ import { Chips, Input, Select, Textarea } from '@/components/ui/Field';
 import { Sheet } from '@/components/ui/Sheet';
 import { Notice } from '@/components/ui/States';
 import { useToast } from '@/components/ui/Toaster';
+import { useHideFab } from '@/components/shell/fab';
 import { useClientUser } from '@/components/shell/UserContext';
+import { fmtKg, inputNum } from './format';
 import { RestTimer, type RestTimerHandle } from './RestTimer';
 import { Suggestion } from './Suggestion';
 
@@ -20,12 +22,12 @@ type ExerciseView = WorkoutOverview['exercises'][string];
 
 export function fmtSet(s: { actualReps: number | null; weightKg: number | null; rpe?: number | null }, unit: 'reps' | 'seconds') {
   const reps = s.actualReps === null ? '—' : unit === 'seconds' ? `${s.actualReps} с` : String(s.actualReps);
-  const w = s.weightKg ? ` × ${s.weightKg} кг` : '';
-  return `${reps}${w}${s.rpe ? ` · RPE ${s.rpe}` : ''}`;
+  const w = s.weightKg ? ` × ${fmtKg(s.weightKg)} кг` : '';
+  return `${reps}${w}${s.rpe ? ` · RPE ${fmtKg(s.rpe)}` : ''}`;
 }
 
 function parseNum(v: string): number | null {
-  const n = Number(v.replace(',', '.'));
+  const n = Number(v.replace(',', '.').replace(/\s/g, ''));
   return v.trim() && Number.isFinite(n) ? n : null;
 }
 
@@ -34,12 +36,15 @@ function ExerciseCard({
   view,
   sets,
   sessionId,
+  current,
   onLogged,
 }: {
   exerciseKey: string;
   view: ExerciseView | undefined;
   sets: SerializedSet[];
   sessionId: string;
+  /** the exercise that is up next: its «Записать подход» is the main action on screen */
+  current: boolean;
   onLogged: () => void;
 }) {
   const router = useRouter();
@@ -48,7 +53,7 @@ function ExerciseCard({
   const unit = view?.unit ?? (exerciseKey === 'plank' ? 'seconds' : 'reps');
   const prefill = view?.prefill ?? { reps: null, weightKg: null };
   const [reps, setReps] = useState(prefill.reps !== null ? String(prefill.reps) : '');
-  const [weight, setWeight] = useState(prefill.weightKg !== null ? String(prefill.weightKg) : '');
+  const [weight, setWeight] = useState(inputNum(prefill.weightKg));
   const [rpe, setRpe] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [showCues, setShowCues] = useState(false);
@@ -60,7 +65,7 @@ function ExerciseCard({
   if (last && last.id !== seenLast) {
     setSeenLast(last.id);
     setReps(last.actualReps !== null ? String(last.actualReps) : '');
-    setWeight(last.weightKg !== null ? String(last.weightKg) : '');
+    setWeight(inputNum(last.weightKg));
   }
 
   async function log(e: FormEvent) {
@@ -130,7 +135,7 @@ function ExerciseCard({
         </p>
       ) : null}
       {view?.offer && view.offer.action !== 'keep' ? <Suggestion offer={view.offer} className="mt-2" /> : null}
-      {view?.acceptedWeightKg ? <p className="mt-1 text-xs text-accent">Принято: пробуем {view.acceptedWeightKg} кг</p> : null}
+      {view?.acceptedWeightKg ? <p className="mt-1 text-xs text-accent">Принято: пробуем {fmtKg(view.acceptedWeightKg)} кг</p> : null}
 
       {sets.length ? (
         <ol className="mt-2 divide-y divide-border rounded-xl bg-surface-2">
@@ -158,7 +163,7 @@ function ExerciseCard({
             </option>
           ))}
         </Select>
-        <Button type="submit" variant="soft" block loading={busy === 'log'} icon={<Plus className="size-4" />} className="col-span-3">
+        <Button type="submit" variant={current ? 'primary' : 'soft'} size={current ? 'lg' : 'md'} block loading={busy === 'log'} icon={<Plus className="size-4" />} className="col-span-3">
           Записать подход
         </Button>
       </form>
@@ -242,6 +247,11 @@ export function ActiveSession({ overview, routine }: { overview: WorkoutOverview
   const logged = [...new Set(active.sets.map((s) => s.exerciseKey))];
   const keys = [...new Set([...routineKeys, ...logged, ...extra])];
   const linked = overview.weekEvents.find((e) => e.id === active.scheduleEventId);
+  const targetSets = (k: string) => overview.exercises[k]?.target?.sets ?? routine?.exercises.find((e) => e.exerciseKey === k)?.sets ?? 0;
+  const setsOf = (k: string) => active.sets.filter((s) => s.exerciseKey === k).length;
+  // next exercise with sets left; once everything planned is logged, «Завершить» becomes the main action
+  const currentKey = keys.find((k) => setsOf(k) < targetSets(k)) ?? null;
+  useHideFab(true);
 
   async function cancel() {
     setBusy(true);
@@ -268,8 +278,7 @@ export function ActiveSession({ overview, routine }: { overview: WorkoutOverview
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button
-            variant="primary"
-            size="lg"
+            variant={currentKey ? 'secondary' : 'primary'}
             className="flex-1"
             onClick={() => setFinishing(active.startedAt ? Math.min(600, Math.max(1, Math.round((Date.now() - new Date(active.startedAt).getTime()) / 60000))) : 60)}
           >
@@ -292,7 +301,15 @@ export function ActiveSession({ overview, routine }: { overview: WorkoutOverview
       </div>
 
       {keys.map((k) => (
-        <ExerciseCard key={k} exerciseKey={k} view={overview.exercises[k]} sets={active.sets.filter((s) => s.exerciseKey === k)} sessionId={active.id} onLogged={() => timer.current?.start()} />
+        <ExerciseCard
+          key={k}
+          exerciseKey={k}
+          view={overview.exercises[k]}
+          sets={active.sets.filter((s) => s.exerciseKey === k)}
+          sessionId={active.id}
+          current={k === currentKey}
+          onLogged={() => timer.current?.start()}
+        />
       ))}
 
       <Card className="p-4">

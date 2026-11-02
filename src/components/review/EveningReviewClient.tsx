@@ -24,13 +24,8 @@ const MEAL_TONE: Record<MealDayStatus, { label: string; tone: 'ok' | 'neutral' |
   not_planned: { label: 'не в плане', tone: 'neutral' },
 };
 
-const ENERGY = [
-  { value: 1, label: '1 · без сил' },
-  { value: 2, label: '2' },
-  { value: 3, label: '3' },
-  { value: 4, label: '4' },
-  { value: 5, label: '5 · бодро' },
-];
+/** Same 1–5 scale and labels as the energy check-in in «Здоровье». */
+const ENERGY = [1, 2, 3, 4, 5].map((v) => ({ value: v, label: String(v) }));
 
 type ItemState = { selected: boolean; startTime: string; durationMinutes: number; editing: boolean };
 
@@ -78,124 +73,149 @@ export function EveningReviewClient({ view }: { view: EveningView }) {
     );
   const skipReview = () => run('skip', () => api<{ message: string }>('/api/review/evening/skip', { body: { date: view.date } }), (r) => r.message);
 
+  // one accent action per screen: «Завершить день» until the questions are answered (or skipped), then «Принять план»
+  const questionsDone = reviewed || skipped;
+
   return (
     <div className="space-y-5">
       <header className="space-y-1">
         <p className="text-sm text-muted">{formatDateRu(view.date, { long: true })}</p>
         <h1 className="text-2xl font-semibold leading-tight">Завершение дня</h1>
-        <p className="text-[15px] text-muted">Пара вопросов и план на {tomorrowLabel.toLowerCase()}. Можно пропустить — ничего не сломается.</p>
+        <p className="text-[15px] text-muted">Пара вопросов и план на {tomorrowLabel.toLowerCase()}.</p>
         {reviewed ? <Badge tone="ok">Обзор за {dayTitle} сохранён</Badge> : skipped ? <Badge>Обзор за {dayTitle} пропущен</Badge> : null}
       </header>
 
       {error ? <Notice tone="danger">{error}</Notice> : null}
 
-      {/* unanswered quick answers */}
-      {facts.unanswered.length ? (
-        <Card className="p-4">
-          <h2 className="font-medium">Без ответа: {facts.unanswered.length}</h2>
-          <p className="mt-0.5 text-sm text-muted">Это «неизвестно», а не «пропущено». Отметь, как было на самом деле, — или оставь.</p>
-          <ul className="mt-2 divide-y divide-border">
-            {facts.unanswered.map((e) => (
-              <li key={e.id}>
-                <EventRow e={e} compact onOpen={(x) => setSheet({ e: x, mode: x.kind.startsWith('meal') ? 'meal' : 'menu' })} />
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ) : null}
+      <div className="space-y-5 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:space-y-0">
+        <div className="min-w-0 space-y-5">
+          {/* facts of the day + quick answers for what is still unknown */}
+          <section aria-labelledby="day-facts" className="space-y-2">
+            <h2 id="day-facts" className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
+              Как прошёл день
+            </h2>
+            <Card className="space-y-3 p-4 text-[15px]">
+              <div className="flex flex-wrap gap-2">
+                {facts.meals.map((m) => (
+                  <Badge key={m.slot} tone={MEAL_TONE[m.status].tone}>
+                    {m.label}: {MEAL_TONE[m.status].label}
+                  </Badge>
+                ))}
+              </div>
+              {facts.events.tracked ? (
+                <p>
+                  Выполнено {facts.events.completed} из {facts.events.tracked}
+                  {facts.events.skipped ? `, пропущено ${facts.events.skipped}` : ''}
+                  {facts.events.unknown ? `, без ответа ${facts.events.unknown}` : ''}
+                  {facts.events.upcoming ? `, ещё впереди ${facts.events.upcoming}` : ''}.
+                </p>
+              ) : (
+                <p className="text-muted">В плане дня не было событий для отметки — нет данных.</p>
+              )}
+              {facts.extraWork.sessions ? (
+                <p>
+                  Дополнительная работа: план {formatDuration(facts.extraWork.plannedMinutes)}, подтверждено{' '}
+                  {facts.extraWork.actualMinutes ? formatDuration(facts.extraWork.actualMinutes) : 'нет'}.
+                </p>
+              ) : null}
+              {facts.workout.planned || facts.workout.sessionLogged ? (
+                <p>
+                  Тренировка:{' '}
+                  {facts.workout.completed || facts.workout.sessionLogged
+                    ? 'выполнена'
+                    : facts.workout.skipped
+                      ? 'пропущена'
+                      : facts.workout.unknown
+                        ? 'без ответа'
+                        : 'ещё впереди'}
+                  .
+                </p>
+              ) : null}
+              {facts.unanswered.length ? (
+                <div className="border-t border-border pt-3">
+                  <p className="text-sm text-muted">Отметь, как было, если помнишь:</p>
+                  <ul className="mt-1 divide-y divide-border">
+                    {facts.unanswered.map((e) => (
+                      <li key={e.id}>
+                        <EventRow e={e} compact onOpen={(x) => setSheet({ e: x, mode: x.kind.startsWith('meal') ? 'meal' : 'menu' })} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </Card>
+          </section>
 
-      {/* facts of the day */}
-      <section aria-labelledby="day-facts" className="space-y-2">
-        <h2 id="day-facts" className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
-          Как прошёл день — по отметкам
-        </h2>
-        <Card className="space-y-3 p-4 text-[15px]">
-          <div className="flex flex-wrap gap-2">
-            {facts.meals.map((m) => (
-              <Badge key={m.slot} tone={MEAL_TONE[m.status].tone}>
-                {m.label}: {MEAL_TONE[m.status].label}
-              </Badge>
-            ))}
-          </div>
-          {facts.events.tracked ? (
-            <p>
-              Выполнено {facts.events.completed} из {facts.events.tracked}
-              {facts.events.skipped ? `, пропущено ${facts.events.skipped}` : ''}
-              {facts.events.unknown ? `, без ответа ${facts.events.unknown}` : ''}
-              {facts.events.upcoming ? `, ещё впереди ${facts.events.upcoming}` : ''}.
-            </p>
-          ) : (
-            <p className="text-muted">В плане дня не было событий для отметки — нет данных.</p>
-          )}
-          {facts.extraWork.sessions ? (
-            <p>
-              Дополнительная работа: план {formatDuration(facts.extraWork.plannedMinutes)}, подтверждено{' '}
-              {facts.extraWork.actualMinutes ? formatDuration(facts.extraWork.actualMinutes) : 'нет'}.
-            </p>
-          ) : null}
-          {facts.workout.planned || facts.workout.sessionLogged ? (
-            <p>
-              Тренировка:{' '}
-              {facts.workout.completed || facts.workout.sessionLogged
-                ? 'выполнена'
-                : facts.workout.skipped
-                  ? 'пропущена'
-                  : facts.workout.unknown
-                    ? 'без ответа'
-                    : 'ещё впереди'}
-              .
-            </p>
-          ) : null}
-        </Card>
-      </section>
+          {/* the 2–4 questions */}
+          <section aria-labelledby="questions" className="space-y-2">
+            <h2 id="questions" className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
+              Пара вопросов
+            </h2>
+            <Card className="space-y-4 p-4">
+              <Textarea label="Что сегодня удалось?" placeholder="Необязательно, пара слов" value={wins} maxLength={500} onChange={(e) => setWins(e.target.value)} className="min-h-16" />
+              <Textarea label="Что мешало?" placeholder="Например, созвоны после 17:00" value={blockers} maxLength={500} onChange={(e) => setBlockers(e.target.value)} className="min-h-16" />
+              {view.askWorkInBed ? (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium">Работал сегодня в кровати?</p>
+                  <Chips
+                    ariaLabel="Работал сегодня в кровати?"
+                    options={[
+                      { value: 'no', label: 'Нет' },
+                      { value: 'yes', label: 'Да' },
+                    ]}
+                    value={bed === null ? [] : [bed ? 'yes' : 'no']}
+                    onChange={(v) => setBed(v[0] === undefined ? null : v[0] === 'yes')}
+                  />
+                </div>
+              ) : null}
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Сколько сил осталось?</p>
+                <Chips ariaLabel="Сколько сил осталось, от 1 до 5" options={ENERGY} value={energy === null ? [] : [energy]} onChange={(v) => setEnergy(v[0] ?? null)} />
+                <p className="text-xs text-muted">1 — без сил, 5 — бодро</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                <Button
+                  variant={questionsDone ? 'secondary' : 'primary'}
+                  size="lg"
+                  loading={busy === 'save'}
+                  onClick={saveReview}
+                  icon={<Moon className="size-4" />}
+                  className="sm:flex-1"
+                >
+                  {reviewed ? 'Обновить ответы' : 'Завершить день'}
+                </Button>
+                {!questionsDone ? (
+                  <Button variant="ghost" loading={busy === 'skip'} onClick={skipReview}>
+                    Пропустить сегодня
+                  </Button>
+                ) : null}
+              </div>
+            </Card>
+          </section>
+        </div>
 
-      {/* the 2–4 questions */}
-      <section aria-labelledby="questions" className="space-y-2">
-        <h2 id="questions" className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">
-          Пара вопросов
-        </h2>
-        <Card className="space-y-4 p-4">
-          <Textarea label="Что сегодня удалось?" placeholder="Необязательно, пара слов" value={wins} maxLength={500} onChange={(e) => setWins(e.target.value)} className="min-h-16" />
-          <Textarea label="Что мешало?" placeholder="Например, созвоны после 17:00" value={blockers} maxLength={500} onChange={(e) => setBlockers(e.target.value)} className="min-h-16" />
-          {view.askWorkInBed ? (
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium">Сегодня не работал в кровати?</p>
-              <Chips
-                ariaLabel="Работа в кровати"
-                options={[
-                  { value: 'no', label: 'Да, не работал' },
-                  { value: 'yes', label: 'Работал' },
-                ]}
-                value={bed === null ? [] : [bed ? 'yes' : 'no']}
-                onChange={(v) => setBed(v[0] === undefined ? null : v[0] === 'yes')}
-              />
-            </div>
-          ) : null}
-          <div className="space-y-1.5">
-            <p className="text-sm font-medium">Сколько сил осталось?</p>
-            <Chips ariaLabel="Сколько сил осталось" options={ENERGY} value={energy === null ? [] : [energy]} onChange={(v) => setEnergy(v[0] ?? null)} />
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="primary" size="lg" loading={busy === 'save'} onClick={saveReview} icon={<Moon className="size-4" />} className="sm:flex-1">
-              {reviewed ? 'Обновить ответы' : 'Завершить день'}
-            </Button>
-            {!reviewed ? (
-              <Button variant="ghost" loading={busy === 'skip'} onClick={skipReview}>
-                Пропустить обзор сегодня
-              </Button>
-            ) : null}
-          </div>
-        </Card>
-      </section>
-
-      <TomorrowSection key={draftKey} tomorrow={tomorrow} label={tomorrowLabel} onOpenEvent={(e) => setSheet({ e, mode: 'menu' })} />
+        <div className="min-w-0">
+          <TomorrowSection key={draftKey} tomorrow={tomorrow} label={tomorrowLabel} emphasize={questionsDone} onOpenEvent={(e) => setSheet({ e, mode: 'menu' })} />
+        </div>
+      </div>
 
       <EventActionSheet event={sheet?.e ?? null} initialMode={sheet?.mode ?? 'menu'} onClose={() => setSheet(null)} />
     </div>
   );
 }
 
-function TomorrowSection({ tomorrow, label: tomorrowLabel, onOpenEvent }: { tomorrow: EveningView['tomorrow']; label: string; onOpenEvent: (e: UiEvent) => void }) {
+function TomorrowSection({
+  tomorrow,
+  label: tomorrowLabel,
+  emphasize,
+  onOpenEvent,
+}: {
+  tomorrow: EveningView['tomorrow'];
+  label: string;
+  /** true once the day's questions are done — then «Принять план» is the screen's primary action */
+  emphasize: boolean;
+  onOpenEvent: (e: UiEvent) => void;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [items, setItems] = useState<Record<string, ItemState>>(() => itemsFrom(tomorrow.suggestions));
@@ -276,7 +296,7 @@ function TomorrowSection({ tomorrow, label: tomorrowLabel, onOpenEvent }: { tomo
             <h3 className="font-medium">Предложения</h3>
             {tomorrow.suggestions.length ? (
               <>
-                <p className="mt-0.5 text-sm text-muted">Каждое — с источником и свободным временем. Сними галочку или поменяй время, если не подходит.</p>
+                <p className="mt-0.5 text-sm text-muted">Сними галочку или поменяй время, если не подходит.</p>
                 <ul className="mt-3 space-y-2">
                   {tomorrow.suggestions.map((s) => (
                     <SuggestionItem
@@ -295,21 +315,21 @@ function TomorrowSection({ tomorrow, label: tomorrowLabel, onOpenEvent }: { tomo
                 День уже собран по твоим правилам: сроков, просрочек и переносов нет.
               </EmptyState>
             )}
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row lg:flex-col">
               {tomorrow.suggestions.length ? (
-                <Button variant="primary" size="lg" loading={busy === 'accept'} onClick={() => accept()} icon={<Check className="size-4" />} className="sm:flex-1">
+                <Button variant={emphasize ? 'primary' : 'secondary'} size="lg" loading={busy === 'accept'} onClick={() => accept()} icon={<Check className="size-4" />} className="sm:flex-1">
                   {selected.length ? `Принять всё (${selected.length})` : 'Принять план'}
                 </Button>
               ) : (
-                <Button variant="primary" size="lg" loading={busy === 'accept'} onClick={() => accept()} disabled={tomorrow.status === 'confirmed'} className="sm:flex-1">
+                <Button variant={emphasize ? 'primary' : 'secondary'} size="lg" loading={busy === 'accept'} onClick={() => accept()} disabled={tomorrow.status === 'confirmed'} className="sm:flex-1">
                   Принять план
                 </Button>
               )}
-              <Button loading={busy === 'keep'} onClick={keep} disabled={tomorrow.status !== 'draft'}>
+              <Button variant={emphasize ? 'secondary' : 'ghost'} loading={busy === 'keep'} onClick={keep} disabled={tomorrow.status !== 'draft'}>
                 Оставить без изменений
               </Button>
             </div>
-            <p className="mt-3 text-xs text-muted">Если не ответить — просто действуют текущие правила, ничего не удаляется и не сдвигается.</p>
+            <p className="mt-3 text-xs text-muted">Если не ответить, план останется как есть.</p>
           </Card>
           <Link href={`/plan?date=${tomorrow.date}`} className="flex min-h-11 items-center px-1 text-sm text-accent">
             Открыть {tomorrowLabel.toLowerCase()} в плане

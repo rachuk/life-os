@@ -8,12 +8,16 @@ export default function RecoverPage() {
       <div className="w-full max-w-md space-y-4 rounded-3xl border border-border bg-surface p-6 shadow-card">
         <h1 className="text-xl font-semibold">Восстановление доступа</h1>
         <p className="text-sm text-muted">
-          Life OS — личный сервер без почтовой рассылки, поэтому письмо со ссылкой не отправляется. Новый пароль задаётся на сервере
-          командой (старые сессии при этом закрываются):
+          Life OS работает на личном сервере без почтовой рассылки, поэтому письмо со ссылкой не придёт. Новый пароль задаёт администратор сервера — старые сессии при
+          этом закрываются.
         </p>
-        <pre className="overflow-x-auto rounded-xl bg-surface-2 p-3 text-xs">pnpm user:reset-password you@example.com</pre>
-        <p className="text-sm text-muted">В Docker: <code className="text-xs">docker compose exec app pnpm user:reset-password you@example.com</code></p>
-        <Link href="/login" className="inline-block text-sm font-medium text-accent">
+        <details className="rounded-xl bg-surface-2 p-3 text-sm">
+          <summary className="flex min-h-11 cursor-pointer items-center font-medium">Если администратор — ты</summary>
+          <p className="mt-1 text-muted">Выполни на сервере:</p>
+          <pre className="mt-2 overflow-x-auto rounded-lg bg-surface p-3 text-xs">pnpm user:reset-password you@example.com</pre>
+          <p className="mt-2 text-muted">Подробнее — в README, в таблице команд.</p>
+        </details>
+        <Link href="/login" className="inline-flex min-h-11 items-center text-sm font-medium text-accent">
           ← Ко входу
         </Link>
       </div>

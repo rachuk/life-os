@@ -28,7 +28,11 @@ export function Sheet({
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
+    if (open && !d.open) {
+      d.showModal();
+      // prefer the field marked data-autofocus over the close button
+      requestAnimationFrame(() => d.querySelector<HTMLElement>('[data-autofocus]')?.focus());
+    }
     if (!open && d.open) d.close();
   }, [open]);
 

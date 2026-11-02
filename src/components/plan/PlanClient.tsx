@@ -1,9 +1,9 @@
 'use client';
-import { Briefcase, ChevronLeft, ChevronRight, Plus, Undo2 } from 'lucide-react';
+import { Briefcase, ChevronLeft, ChevronRight, Lock, Plus, Shield, Undo2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { addDays, formatDateRu, formatDuration, formatRange, formatTime, isoWeekday, relativeDayLabel, weekdayShort } from '@/domain/time';
-import { PRIORITY_LABELS, type EventPriority } from '@/domain/types';
+import { addDays, formatDateRu, formatDuration, formatRange, formatTime, isoWeekday, localDateOf, relativeDayLabel, weekdayShort } from '@/domain/time';
+import { CONTAINER_KINDS, type EventKind } from '@/domain/types';
 import { api, errorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -30,10 +30,11 @@ const SOURCE_LABELS: Record<string, string> = {
   day_plan: 'План дня',
 };
 
-function freeGaps(events: UiEvent[], date: string, tz: string) {
-  const live = events
-    .filter((e) => !['cancelled', 'skipped'].includes(e.status) && e.kind !== 'sleep')
-    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+/** Routine blocks are collapsed in the week view; variable ones are what the week is about. */
+const ROUTINE: EventKind[] = ['work', 'morning_routine', 'meal_breakfast', 'meal_lunch', 'meal_dinner', 'snack', 'sleep', 'review'];
+
+function freeGaps(events: UiEvent[]) {
+  const live = events.filter((e) => !['cancelled', 'skipped'].includes(e.status) && e.kind !== 'sleep').sort((a, b) => a.startAt.localeCompare(b.startAt));
   const gaps: { start: string; end: string; minutes: number }[] = [];
   let cursor: string | null = null;
   for (const e of live) {
@@ -43,9 +44,12 @@ function freeGaps(events: UiEvent[], date: string, tz: string) {
     }
     if (!cursor || e.endAt > cursor) cursor = e.endAt;
   }
-  void date;
-  void tz;
   return gaps;
+}
+
+function isNested(e: UiEvent, all: UiEvent[]): boolean {
+  if (CONTAINER_KINDS.includes(e.kind)) return false;
+  return all.some((c) => c.id !== e.id && CONTAINER_KINDS.includes(c.kind) && c.startAt <= e.startAt && c.endAt >= e.endAt && c.status !== 'cancelled');
 }
 
 export function PlanClient({ data, today, initialDate, initialView }: { data: WeekData; today: string; initialDate: string; initialView: 'day' | 'week' }) {
@@ -60,13 +64,14 @@ export function PlanClient({ data, today, initialDate, initialView }: { data: We
 
   const days = data.days;
   const dayEvents = useMemo(() => (days.find((d) => d.date === date)?.events ?? []) as UiEvent[], [days, date]);
-  const gaps = useMemo(() => freeGaps(dayEvents, date, tz), [dayEvents, date, tz]);
+  const gaps = useMemo(() => freeGaps(dayEvents), [dayEvents]);
   const p = data.progress;
   const weekEnd = addDays(data.weekStart, 6);
+  const overtime = p.extraWorkMinutes.planned > p.extraWorkMinutes.warnAt;
 
   const goWeek = (delta: number) => {
     const w = addDays(data.weekStart, delta * 7);
-    router.push(`/plan?week=${w}&view=${view}${delta === 0 ? '' : `&date=${w}`}`);
+    router.push(`/plan?week=${w}&view=${view}&date=${w}`);
   };
 
   async function undo(id: string) {
@@ -83,32 +88,29 @@ export function PlanClient({ data, today, initialDate, initialView }: { data: We
   }
 
   return (
-    <div className="space-y-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+    <div className="space-y-4">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold">План</h1>
           <p className="text-sm text-muted">
             {formatDateRu(data.weekStart)} — {formatDateRu(weekEnd)}
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" aria-label="Предыдущая неделя" onClick={() => goWeek(-1)} icon={<ChevronLeft className="size-4" />} />
-          <Button variant="ghost" size="sm" onClick={() => router.push(`/plan?view=${view}`)}>
+          <button type="button" aria-label="Предыдущая неделя" onClick={() => goWeek(-1)} className="grid size-11 place-items-center rounded-xl hover:bg-surface-2">
+            <ChevronLeft className="size-5" />
+          </button>
+          <button type="button" onClick={() => router.push(`/plan?view=${view}`)} className="min-h-11 rounded-xl px-3 text-sm font-medium hover:bg-surface-2">
             Сегодня
-          </Button>
-          <Button variant="ghost" size="sm" aria-label="Следующая неделя" onClick={() => goWeek(1)} icon={<ChevronRight className="size-4" />} />
+          </button>
+          <button type="button" aria-label="Следующая неделя" onClick={() => goWeek(1)} className="grid size-11 place-items-center rounded-xl hover:bg-surface-2">
+            <ChevronRight className="size-5" />
+          </button>
         </div>
       </header>
 
-      <div className="flex flex-wrap gap-2">
-        <Button variant="primary" icon={<Briefcase className="size-4" />} onClick={() => openExtraWork()}>
-          Нужно поработать
-        </Button>
-        <Button icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
-          Добавить событие
-        </Button>
+      <div className="flex flex-wrap items-center gap-2">
         <Segmented
-          className="ml-auto"
           ariaLabel="Вид"
           value={view}
           onChange={setView}
@@ -117,27 +119,23 @@ export function PlanClient({ data, today, initialDate, initialView }: { data: We
             { value: 'week', label: 'Неделя' },
           ]}
         />
+        <div className="ml-auto flex gap-2">
+          <Button icon={<Briefcase className="size-4" />} onClick={() => openExtraWork()}>
+            Нужно поработать
+          </Button>
+          <Button variant="ghost" icon={<Plus className="size-4" />} onClick={() => setAdding(true)} aria-label="Добавить событие">
+            <span className="hidden sm:inline">Событие</span>
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 text-sm">
-        <Card className="p-3">
-          <p className="text-xs text-muted">Тренировки</p>
-          <p className="tabular font-semibold">
-            {p.workouts.completed} / {p.workouts.target}
-          </p>
-          <p className="text-xs text-faint">в плане: {p.workouts.planned}</p>
-        </Card>
-        <Card className="p-3">
-          <p className="text-xs text-muted">Свои проекты</p>
-          <p className="tabular font-semibold">{formatDuration(p.projectMinutes.completed)}</p>
-          <p className="text-xs text-faint">из {formatDuration(p.projectMinutes.target)}</p>
-        </Card>
-        <Card className={cn('p-3', p.extraWorkMinutes.planned > p.extraWorkMinutes.warnAt && 'border-warn')}>
-          <p className="text-xs text-muted">Переработки</p>
-          <p className="tabular font-semibold">{p.extraWorkMinutes.planned ? formatDuration(p.extraWorkMinutes.planned) : '0'}</p>
-          <p className="text-xs text-faint">порог {formatDuration(p.extraWorkMinutes.warnAt)}</p>
-        </Card>
-      </div>
+      <p className="text-sm text-muted">
+        Тренировки <b className="tabular font-semibold text-text">{p.workouts.completed}/{p.workouts.target}</b>
+        {p.workouts.planned > p.workouts.completed ? ` (в плане ${p.workouts.planned})` : ''} · свои проекты{' '}
+        <b className="tabular font-semibold text-text">{formatDuration(p.projectMinutes.completed)}</b> из {formatDuration(p.projectMinutes.target)} · переработки{' '}
+        <b className={cn('tabular font-semibold', overtime ? 'text-warn' : 'text-text')}>{p.extraWorkMinutes.planned ? formatDuration(p.extraWorkMinutes.planned) : '0'}</b>
+        {overtime ? ` — больше порога ${formatDuration(p.extraWorkMinutes.warnAt)}` : ''}
+      </p>
 
       {data.risks.map((r) => (
         <Notice key={r.message} tone="warn">
@@ -167,20 +165,17 @@ export function PlanClient({ data, today, initialDate, initialView }: { data: We
             ))}
           </div>
           <Card className="p-1.5">
-            <div className="flex items-center justify-between px-3 py-2">
-              <h2 className="font-semibold">{relativeDayLabel(date, today)}</h2>
-              <span className="text-xs text-muted">{formatDateRu(date)}</span>
-            </div>
+            <h2 className="px-3 py-2 font-semibold">{date === today ? 'Сегодня' : formatDateRu(date, { long: true })}</h2>
             {dayEvents.length ? (
               <ul>
                 {dayEvents.map((e) => (
                   <li key={e.id}>
-                    <EventRow e={e as UiEvent} onOpen={setSheet} />
+                    <EventRow e={e as UiEvent} listDate={date} nested={isNested(e as UiEvent, dayEvents)} onOpen={setSheet} />
                   </li>
                 ))}
               </ul>
             ) : (
-              <EmptyState title="Пока нет данных">План на этот день не строился (прошедшие дни до начала использования пусты).</EmptyState>
+              <EmptyState title="Пока нет данных">План на этот день не строился — до начала использования дни пустые.</EmptyState>
             )}
           </Card>
           {gaps.length ? (
@@ -198,58 +193,65 @@ export function PlanClient({ data, today, initialDate, initialView }: { data: We
         </>
       ) : (
         <div className="grid gap-3 lg:grid-cols-7 lg:gap-2">
-          {days.map((d) => (
-            <Card key={d.date} className={cn('p-1.5 lg:min-h-64', d.date === today && 'ring-1 ring-accent')}>
-              <button type="button" onClick={() => { setDate(d.date); setView('day'); }} className="flex w-full items-baseline justify-between px-2 py-1.5 text-left">
-                <span className="font-semibold">{weekdayShort(isoWeekday(d.date))}</span>
-                <span className="tabular text-xs text-muted">{d.date.slice(8)}.{d.date.slice(5, 7)}</span>
-              </button>
-              {d.events.filter((e) => e.kind !== 'sleep' && e.kind !== 'morning_routine').length ? (
-                <ul className="space-y-0.5">
-                  {d.events
-                    .filter((e) => e.kind !== 'sleep' && e.kind !== 'morning_routine')
-                    .map((e) => (
-                      <li key={e.id}>
-                        <button
-                          type="button"
-                          onClick={() => setSheet(e as UiEvent)}
-                          className={cn('flex w-full items-start gap-1.5 rounded-lg px-2 py-1 text-left text-xs hover:bg-surface-2', ['cancelled', 'skipped'].includes(e.status) && 'opacity-40 line-through')}
-                        >
-                          <span className="mt-1 size-2 shrink-0 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
-                          <span className="min-w-0">
-                            <span className="tabular block text-faint">{formatTime(e.startAt, tz)}</span>
-                            <span className="block truncate">{e.title}</span>
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                </ul>
-              ) : (
-                <p className="px-2 py-2 text-xs text-faint">Нет данных</p>
-              )}
-            </Card>
-          ))}
+          {days.map((d) => {
+            const live = (d.events as UiEvent[]).filter((e) => e.status !== 'cancelled');
+            const variable = live.filter((e) => !ROUTINE.includes(e.kind));
+            const work = live.find((e) => e.kind === 'work');
+            const meals = live.filter((e) => e.kind.startsWith('meal') || e.kind === 'snack').length;
+            return (
+              <Card key={d.date} className={cn('p-1.5 lg:min-h-56', d.date === today && 'ring-1 ring-accent')}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDate(d.date);
+                    setView('day');
+                  }}
+                  className="flex min-h-11 w-full items-baseline justify-between px-2 text-left"
+                >
+                  <span className="font-semibold">{relativeDayLabel(d.date, today) === 'Сегодня' ? 'Сегодня' : weekdayShort(isoWeekday(d.date))}</span>
+                  <span className="tabular text-xs text-muted">
+                    {d.date.slice(8)}.{d.date.slice(5, 7)}
+                  </span>
+                </button>
+                {live.length ? (
+                  <>
+                    <p className="px-2 pb-1 text-xs text-muted">
+                      {work ? `Работа ${formatRange(work.startAt, work.endAt, tz)}` : 'Выходной'}
+                      {meals ? ` · еда ×${meals}` : ''}
+                    </p>
+                    {variable.length ? (
+                      <ul className="space-y-0.5">
+                        {variable.map((e) => (
+                          <li key={e.id}>
+                            <button
+                              type="button"
+                              onClick={() => setSheet(e)}
+                              className={cn('flex min-h-11 w-full items-start gap-1.5 rounded-lg px-2 py-1 text-left text-[13px] hover:bg-surface-2', e.status === 'skipped' && 'opacity-50 line-through')}
+                            >
+                              <span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ background: KIND_COLOR[e.kind] }} />
+                              <span className="min-w-0">
+                                <span className="tabular block text-xs text-muted">
+                                  {localDateOf(e.startAt, tz) !== d.date ? `${weekdayShort(isoWeekday(localDateOf(e.startAt, tz)))} ` : ''}
+                                  {formatTime(e.startAt, tz)}
+                                </span>
+                                <span className="line-clamp-2 block leading-snug">{e.title}</span>
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="px-2 pb-1 text-xs text-muted">Только распорядок</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="px-2 py-2 text-xs text-muted">Нет данных</p>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
-
-      <section className="space-y-2">
-        <h2 className="px-1 text-[13px] font-semibold uppercase tracking-wide text-muted">Типы блоков</h2>
-        <Card className="grid gap-1 p-4 text-sm sm:grid-cols-2">
-          {(Object.keys(PRIORITY_LABELS) as EventPriority[]).map((k) => (
-            <p key={k}>
-              <span className="font-medium">{PRIORITY_LABELS[k]}</span>
-              <span className="text-muted">
-                {' — '}
-                {k === 'fixed' && 'работа и подтверждённые встречи, не двигаются'}
-                {k === 'protected' && 'сон и еда: сдвигаются только в своих окнах, не сокращаются'}
-                {k === 'required_movable' && 'тренировки и свои проекты: переносятся в пределах недели'}
-                {k === 'flexible' && 'можно двигать и отменять'}
-                {k === 'buffer' && 'запас на задержки'}
-              </span>
-            </p>
-          ))}
-        </Card>
-      </section>
 
       {data.versions.length ? (
         <section className="space-y-2">
@@ -259,8 +261,8 @@ export function PlanClient({ data, today, initialDate, initialView }: { data: We
               <div key={v.id} className="flex items-center gap-3 px-4 py-2.5">
                 <div className="min-w-0 flex-1">
                   <p className={cn('truncate text-sm', v.status === 'reverted' && 'text-muted line-through')}>{v.summary ?? SOURCE_LABELS[v.source] ?? v.source}</p>
-                  <p className="text-xs text-faint">
-                    v{v.version} · {SOURCE_LABELS[v.source] ?? v.source} · {formatDateRu(v.createdAt.slice(0, 10))} {formatTime(v.createdAt, tz)}
+                  <p className="text-xs text-muted">
+                    {SOURCE_LABELS[v.source] ?? v.source} · {formatDateRu(localDateOf(v.createdAt, tz))} {formatTime(v.createdAt, tz)}
                     {v.actor === 'telegram' ? ' · из Telegram' : ''}
                   </p>
                 </div>
@@ -274,6 +276,19 @@ export function PlanClient({ data, today, initialDate, initialView }: { data: We
           </Card>
         </section>
       ) : null}
+
+      <details className="rounded-2xl border border-border bg-surface px-4">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm text-muted">Что значат значки</summary>
+        <div className="space-y-1.5 pb-4 text-sm">
+          <p className="flex items-center gap-2">
+            <Lock className="size-3.5" /> неподвижное — подтверждённые встречи, не двигаются
+          </p>
+          <p className="flex items-center gap-2">
+            <Shield className="size-3.5" /> защищённое — сон и еда: сдвигаются только в своём окне и никогда не сокращаются
+          </p>
+          <p className="text-muted">Тренировки, свои проекты и навыки переносятся в пределах недели; гибкие дела можно двигать и отменять.</p>
+        </div>
+      </details>
 
       <EventActionSheet event={sheet} onClose={() => setSheet(null)} />
       {adding ? <AddEventSheet open onClose={() => setAdding(false)} defaultDate={date} /> : null}

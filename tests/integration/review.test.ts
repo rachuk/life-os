@@ -9,7 +9,7 @@ import { loadContext } from '@/server/services/profile';
 import { createManualEvent, transitionEvent } from '@/server/services/planning';
 import { createTask } from '@/server/services/tasks';
 import { acceptTomorrow, keepTomorrow, saveEveningReview, tomorrowDraft } from '@/server/services/review';
-import { attachAiCommentary, computeWeekFacts, decideWeeklyReview, generateWeeklyReview, getWeeklyReview } from '@/server/services/weeklyReview';
+import { accountFirstWeek, attachAiCommentary, computeWeekFacts, decideWeeklyReview, defaultReviewWeek, generateWeeklyReview, getWeeklyReview } from '@/server/services/weeklyReview';
 import { setAIProvider, type AIProvider } from '@/server/ai/provider';
 import { applyLedgerAction, rewardsSummary, updateRewardsSettings } from '@/server/services/rewards';
 import { deleteAllUserData, exportUserData, healthMeasurementsCsv } from '@/server/services/dataRights';
@@ -442,5 +442,36 @@ describe('optional AI commentary: aggregated facts only, failure → rules', () 
     view = await run(u, (tx, ctx) => getWeeklyReview(tx, ctx, SUNDAY_EVENING, WEEK));
     expect(view.review!.aiInsights?.source).toBe('rules');
     expect(view.review!.facts.summaryLines.length).toBeGreaterThan(3); // deterministic text is always there
+  });
+});
+
+describe('weekly review of a brand-new account never offers weeks before it existed', () => {
+  const MONDAY = at('2026-11-02T09:00');
+  let u: string;
+  beforeAll(async () => {
+    u = await onboardUser('rev-first', MONDAY);
+    // the night before the first day (a lone sleep block on Sunday) must not pull the previous week in
+    await withSystem((tx) => tx`
+      insert into schedule_events (user_id, local_date, start_at, end_at, kind, title, priority_class)
+      values (${u}, '2026-11-01', ${at('2026-11-01T23:59').toJSDate()}, ${at('2026-11-02T08:00').toJSDate()}, 'sleep', 'Сон', 'protected')`);
+  });
+
+  it('starts at the onboarding week: default week, no «previous» arrow, first review on its Sunday', async () => {
+    const first = await run(u, (tx, ctx) => accountFirstWeek(tx, ctx, MONDAY));
+    expect(first).toBe(WEEK);
+    // on Monday the default would be last week — but that week predates the account
+    expect(await run(u, async (tx, ctx) => defaultReviewWeek(ctx, MONDAY, first))).toBe(WEEK);
+    const view = await run(u, (tx, ctx) => getWeeklyReview(tx, ctx, MONDAY, WEEK));
+    expect(view).toMatchObject({ firstWeek: WEEK, firstReviewDate: '2026-11-08', prevWeek: null, review: null });
+    const before = await run(u, (tx, ctx) => getWeeklyReview(tx, ctx, MONDAY, '2026-10-26'));
+    expect(before.weekStart < before.firstWeek).toBe(true);
+    expect(before.prevWeek).toBeNull();
+  });
+
+  it('a later week still links back to the first one', async () => {
+    const later = at('2026-11-10T12:00');
+    const view = await run(u, (tx, ctx) => getWeeklyReview(tx, ctx, later, '2026-11-09'));
+    expect(view.prevWeek).toBe(WEEK);
+    expect(await run(u, async (tx, ctx) => defaultReviewWeek(ctx, later, await accountFirstWeek(tx, ctx, later)))).toBe(WEEK);
   });
 });

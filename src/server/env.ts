@@ -104,21 +104,21 @@ export function integrationStatuses(): IntegrationStatus[] {
       label: 'Telegram-бот',
       enabled: e.ENABLE_TELEGRAM,
       configured: tg,
-      detail: tg ? `@${e.TELEGRAM_BOT_USERNAME}` : 'Не подключено: не заданы TELEGRAM_BOT_TOKEN и TELEGRAM_BOT_USERNAME',
+      detail: tg ? `@${e.TELEGRAM_BOT_USERNAME}` : 'Telegram не настроен на сервере — напоминания приходят в приложении',
     },
     {
       key: 'web_push',
       label: 'Push-уведомления (PWA)',
       enabled: e.ENABLE_WEB_PUSH,
       configured: push,
-      detail: push ? 'VAPID-ключи заданы' : 'Не подключено: не заданы VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY (pnpm vapid)',
+      detail: push ? 'Можно включить на устройстве' : 'Push не настроен на сервере — напоминания приходят в приложении',
     },
     {
       key: 'ai_voice',
       label: 'Распознавание голоса',
       enabled: e.ENABLE_AI_VOICE,
       configured: transcribe,
-      detail: transcribe ? `Модель ${e.AI_TRANSCRIBE_MODEL}` : 'Не подключено: голос можно ввести текстом',
+      detail: transcribe ? `Модель ${e.AI_TRANSCRIBE_MODEL}` : 'Не настроено — голос можно ввести текстом',
     },
     {
       key: 'ai_intent',
@@ -132,14 +132,14 @@ export function integrationStatuses(): IntegrationStatus[] {
       label: 'Распознавание фото',
       enabled: e.ENABLE_AI_IMAGES,
       configured: vision,
-      detail: vision ? `Модель ${e.AI_VISION_MODEL}` : 'Не подключено: значения с фото вводятся вручную',
+      detail: vision ? `Модель ${e.AI_VISION_MODEL}` : 'Не настроено — значения с фото вводятся вручную',
     },
     {
       key: 'ai_weekly',
       label: 'ИИ-комментарий к обзору недели',
       enabled: e.ENABLE_AI_WEEKLY_REVIEW,
       configured: llm,
-      detail: llm ? 'Факты считает сервер, ИИ только комментирует' : 'Обзор строится по правилам, без ИИ',
+      detail: llm ? 'ИИ только комментирует посчитанные факты' : 'Обзор строится по правилам, без ИИ',
     },
   ];
 }

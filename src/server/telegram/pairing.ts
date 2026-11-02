@@ -34,7 +34,7 @@ export async function createLinkToken(userId: string, nowJs: Date = new Date()):
   const e = env();
   if (!e.ENABLE_TELEGRAM) throw new AppError('TELEGRAM_DISABLED', 'Telegram-бот выключен настройкой ENABLE_TELEGRAM.', 503);
   if (!telegramConfigured()) {
-    throw new AppError('TELEGRAM_NOT_CONFIGURED', 'Telegram не подключён: на сервере не заданы TELEGRAM_BOT_TOKEN и TELEGRAM_BOT_USERNAME.', 503);
+    throw new AppError('TELEGRAM_NOT_CONFIGURED', 'Telegram не настроен на сервере. Напоминания приходят внутри приложения.', 503);
   }
   const token = randomBytes(24).toString('base64url'); // 32 chars, allowed in /start payloads
   const expiresAt = new Date(nowJs.getTime() + LINK_TTL_MINUTES * 60_000);

@@ -37,7 +37,7 @@ export async function countSubscriptions(userId: string): Promise<number> {
 }
 
 export async function subscribePush(userId: string, input: PushSubscriptionInput): Promise<{ id: string }> {
-  if (!webPushReady()) throw new AppError('PUSH_NOT_CONFIGURED', 'Push не подключён на сервере: не заданы VAPID-ключи (pnpm vapid).', 503);
+  if (!webPushReady()) throw new AppError('PUSH_NOT_CONFIGURED', 'Push не настроен на сервере. Напоминания приходят внутри приложения.', 503);
   // The same browser endpoint may have been registered by another account on this device: the
   // subscription now belongs to whoever is signed in (the old owner simply stops receiving pushes).
   await withSystem((tx) => tx`delete from push_subscriptions where endpoint = ${input.endpoint} and user_id <> ${userId}`);
@@ -66,7 +66,7 @@ export async function unsubscribePush(userId: string, endpoint: string | null): 
 export type PushSender = (sub: { endpoint: string; p256dh: string; auth: string }, payload: Record<string, unknown>) => Promise<void>;
 
 export async function sendTestPush(userId: string, sender: PushSender = sendWebPush): Promise<{ accepted: number; failed: number; removed: number }> {
-  if (!webPushReady()) throw new AppError('PUSH_NOT_CONFIGURED', 'Push не подключён на сервере: не заданы VAPID-ключи (pnpm vapid).', 503);
+  if (!webPushReady()) throw new AppError('PUSH_NOT_CONFIGURED', 'Push не настроен на сервере. Напоминания приходят внутри приложения.', 503);
   const subs = await withUser(userId, (tx) => tx<{ id: string; endpoint: string; p256dh: string; auth: string }[]>`
     select id, endpoint, p256dh, auth from push_subscriptions where user_id = ${userId} and disabled_at is null`);
   if (!subs.length) throw new AppError('NO_PUSH_SUBSCRIPTION', 'На этом аккаунте нет подписанных устройств — сначала включи push на устройстве.', 409);

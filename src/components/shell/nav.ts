@@ -1,4 +1,4 @@
-import { CalendarDays, Dumbbell, Gift, GraduationCap, HeartPulse, LayoutGrid, ListChecks, ScrollText, Settings, ShoppingBasket, Sprout, Sun } from 'lucide-react';
+import { CalendarDays, Dumbbell, Gift, GraduationCap, HeartPulse, LayoutGrid, ListChecks, Moon, ScrollText, Settings, ShoppingBasket, Sprout, Sun } from 'lucide-react';
 
 export const PRIMARY_NAV = [
   { href: '/today', label: 'Сегодня', icon: Sun },
@@ -13,6 +13,7 @@ export const SECONDARY_NAV = [
   { href: '/workouts', label: 'Тренировки', icon: Dumbbell },
   { href: '/habits', label: 'Привычки', icon: Sprout },
   { href: '/skills', label: 'Навыки', icon: GraduationCap },
+  { href: '/review/evening', label: 'Вечерний обзор', icon: Moon },
   { href: '/review/week', label: 'Обзор недели', icon: ScrollText },
   { href: '/rewards', label: 'Награды', icon: Gift },
   { href: '/settings', label: 'Настройки', icon: Settings },

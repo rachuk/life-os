@@ -3,7 +3,7 @@ import { ArrowRight, Ban, Moon, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ExtraWorkPreview } from '@/domain/planner/extraWork';
-import { addDays, formatDateRu, formatDuration, formatRange, formatTime, isoWeekday, relativeDayLabel, timeToMinutes } from '@/domain/time';
+import { addDays, formatDateRu, formatDateShortRu, formatDuration, formatRange, formatTime, isoWeekday, relativeDayLabel, timeToMinutes } from '@/domain/time';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Chips, Input } from '@/components/ui/Field';
@@ -29,6 +29,7 @@ export function ExtraWorkSheet({ open, onClose, initialMinutes }: { open: boolea
   });
   const [startTime, setStartTime] = useState('19:00');
   const [reason, setReason] = useState('');
+  const [showReason, setShowReason] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +106,16 @@ export function ExtraWorkSheet({ open, onClose, initialMinutes }: { open: boolea
   }
 
   const days = [user.today, addDays(user.today, 1)];
+  const summary = preview?.segments.length
+    ? [
+        `Работа ${preview.segments.map((sg) => formatRange(sg.startAt, sg.endAt, user.tz)).join(', ')}`,
+        ...preview.changes.map((c) =>
+          c.to
+            ? `${c.title} → ${c.to.localDate !== c.from.localDate ? `${formatDateShortRu(c.to.localDate)} ` : ''}${formatTime(c.to.startAt, user.tz)}`
+            : `${c.title}: не состоится`,
+        ),
+      ].join(' · ')
+    : null;
   const tz = user.tz;
 
   return (
@@ -115,6 +126,8 @@ export function ExtraWorkSheet({ open, onClose, initialMinutes }: { open: boolea
       description="Сначала покажу, что изменится. Сон и еда автоматически не сокращаются."
       size="lg"
       footer={
+        <div className="space-y-2">
+        {summary ? <p className="truncate text-sm text-muted" aria-live="polite">{summary}</p> : null}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={onClose}>
             Отменить
@@ -128,6 +141,7 @@ export function ExtraWorkSheet({ open, onClose, initialMinutes }: { open: boolea
           >
             Подтвердить{preview?.plannedMinutes ? ` +${formatDuration(preview.plannedMinutes)}` : ''}
           </Button>
+        </div>
         </div>
       }
     >
@@ -181,14 +195,21 @@ export function ExtraWorkSheet({ open, onClose, initialMinutes }: { open: boolea
           </div>
         </div>
 
-        <Input
-          label="Причина (необязательно)"
-          hint="Нейтрально, без названий клиентов и рабочих деталей"
-          placeholder="например, важная задача"
-          maxLength={120}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
+        {showReason ? (
+          <Input
+            label="Причина"
+            hint="Нейтрально, без названий клиентов"
+            placeholder="например, важная задача"
+            maxLength={120}
+            value={reason}
+            data-autofocus
+            onChange={(e) => setReason(e.target.value)}
+          />
+        ) : (
+          <button type="button" onClick={() => setShowReason(true)} className="min-h-11 text-sm text-accent">
+            + Добавить причину
+          </button>
+        )}
 
         <div aria-live="polite" className="space-y-3">
           <h3 className="text-sm font-semibold">Предпросмотр{date !== user.today ? ` · ${formatDateRu(date)}` : ''}</h3>
@@ -249,15 +270,29 @@ export function ExtraWorkSheet({ open, onClose, initialMinutes }: { open: boolea
               ) : null}
 
               {preview.conflicts.map((c) => (
-                <div key={c.code} className="mt-3 rounded-xl bg-danger-soft px-3 py-2.5 text-sm text-danger">
+                <div key={c.code} className="mt-3 rounded-xl bg-surface-2 px-3 py-2.5 text-sm">
                   <p className="flex items-start gap-2">
-                    <Moon className="mt-0.5 size-4 shrink-0" /> {c.message}
+                    <Moon className="mt-0.5 size-4 shrink-0 text-muted" /> {c.message}
                   </p>
-                  {c.suggestedDurationMinutes ? (
-                    <Button size="sm" variant="secondary" className="mt-2" onClick={() => setMinutes(c.suggestedDurationMinutes!)}>
-                      Сократить до {formatDuration(c.suggestedDurationMinutes)}
-                    </Button>
-                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {c.suggestedDurationMinutes ? (
+                      <Button size="sm" variant="secondary" onClick={() => setMinutes(c.suggestedDurationMinutes!)}>
+                        Сократить до {formatDuration(c.suggestedDurationMinutes)}
+                      </Button>
+                    ) : null}
+                    {(c.code === 'IN_SLEEP' || c.code === 'NO_TIME_BEFORE_SLEEP' || c.code === 'SLEEP_LIMIT') && date === user.today ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setDate(addDays(user.today, 1));
+                          setStartMode(user.workDays.includes(isoWeekday(addDays(user.today, 1))) ? 'after_work' : 'at');
+                        }}
+                      >
+                        Завтра после работы
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
 
