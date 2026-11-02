@@ -1,0 +1,14 @@
+# Add to /opt/caddy/Caddyfile on netcup, then validate + reload:
+#   docker exec caddy caddy validate --config /etc/caddy/Caddyfile && docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+# Proxied (orange) Cloudflare record → certificate via DNS-01, same as app.astudypro.com.
+# If the record is DNS-only (grey), the tls block can be removed (HTTP-01).
+life.astudypro.com {
+	encode gzip zstd
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	request_body {
+		max_size 20MB
+	}
+	reverse_proxy lifeos-app:3000
+}
