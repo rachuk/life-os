@@ -35,6 +35,17 @@ async function main() {
     const url = `${e.APP_URL.replace(/\/$/, '')}/api/telegram/webhook`;
     await client.setWebhook(url, e.TELEGRAM_WEBHOOK_SECRET);
     console.log(`✓ Webhook установлен: ${url}`);
+    await client.raw('setMyCommands', {
+      commands: [
+        { command: 'now', description: 'Что сейчас и что дальше' },
+        { command: 'today', description: 'План на сегодня' },
+        { command: 'tomorrow', description: 'План на завтра' },
+        { command: 'work', description: 'Нужно поработать — предпросмотр перестройки' },
+        { command: 'help', description: 'Что умеет бот' },
+        { command: 'stop', description: 'Выключить напоминания в Telegram' },
+      ],
+    });
+    console.log('✓ Меню команд обновлено');
   } else if (cmd === 'delete') {
     await client.deleteWebhook(false);
     console.log('✓ Webhook удалён');
