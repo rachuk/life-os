@@ -1,5 +1,5 @@
 import { z, type ZodType } from 'zod';
-import { parseResultSchema, type ParseResult } from '@/domain/capture/schema';
+import { parseResultSchema, proposedActionSchema, TASK_CATEGORIES, type ParseResult } from '@/domain/capture/schema';
 import { env } from '../env';
 import {
   mealPhotoSchema,
@@ -102,17 +102,17 @@ function jsonSchemaFor(name: string): Record<string, unknown> {
               type: { type: 'string', enum: ['create_task', 'create_waiting', 'add_shopping_item', 'log_weight', 'log_steps', 'log_meal', 'schedule_workout', 'extra_work', 'idea', 'note'] },
               title: nullableStr,
               text: nullableStr,
-              taskType: nullableStr,
-              category: nullableStr,
+              taskType: { type: ['string', 'null'], enum: ['task', 'reminder', null] },
+              category: { type: ['string', 'null'], enum: [...TASK_CATEGORIES, null] },
               dateLocal: nullableStr,
               timeLocal: nullableStr,
               followUpDate: nullableStr,
               waitingFor: nullableStr,
               quantity: { type: ['number', 'null'] },
               unit: nullableStr,
-              listType: nullableStr,
+              listType: { type: ['string', 'null'], enum: ['personal', 'household', null] },
               value: { type: ['number', 'null'] },
-              slot: nullableStr,
+              slot: { type: ['string', 'null'], enum: ['breakfast', 'lunch', 'dinner', 'snack', null] },
               description: nullableStr,
               durationMinutes: { type: ['number', 'null'] },
               sourceText: { type: 'string' },
@@ -129,21 +129,67 @@ function jsonSchemaFor(name: string): Record<string, unknown> {
   return { type: 'object' };
 }
 
-/** Drop nulls the model emits for fields that are optional in the zod contract. */
+const ENUMS: Record<string, readonly string[]> = {
+  taskType: ['task', 'reminder'],
+  category: TASK_CATEGORIES,
+  listType: ['personal', 'household'],
+  priority: ['low', 'normal', 'high'],
+  unit: ['kg'],
+};
+
+/**
+ * Models sometimes invent enum values ("groceries", "tasks"). Normalise softly: drop nulls and
+ * out-of-contract enum values (the zod defaults apply), then validate each action on its own so one
+ * odd action never discards the rest. Nothing invalid ever reaches the user unvalidated.
+ */
 function cleanActions(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;
-  const r = raw as { actions?: Record<string, unknown>[] };
+  const r = raw as { language?: unknown; actions?: Record<string, unknown>[] };
   if (!Array.isArray(r.actions)) return raw;
-  return {
-    ...r,
-    actions: r.actions.map((a) => {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(a)) if (v !== null && v !== undefined) out[k] = v;
-      if (a.reason === null) out.reason = null;
-      for (const k of ['dateLocal', 'timeLocal', 'followUpDate', 'quantity', 'unit', 'waitingFor']) if (k in a && a[k] === null) out[k] = null;
-      return out;
-    }),
-  };
+  const actions = r.actions.flatMap((a) => {
+    if (!a || typeof a !== 'object') return [];
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(a)) {
+      if (v === null || v === undefined) continue;
+      if (k in ENUMS && !(ENUMS[k] as readonly unknown[]).includes(v) && !(k === 'category' && a.type === 'idea')) continue;
+      out[k] = v;
+    }
+    if (a.type === 'log_weight') out.unit = 'kg';
+    if (a.type === 'idea' && !['idea', 'wish', 'own_project'].includes(String(a.category))) delete out.category;
+    for (const k of ['dateLocal', 'timeLocal', 'followUpDate', 'quantity', 'unit', 'waitingFor']) if (k in a && a[k] === null) out[k] = null;
+    if ('reason' in a && a.reason === null) out.reason = null;
+    const one = proposedActionSchema.safeParse(out);
+    return one.success ? [one.data] : [];
+  });
+  const language = ['ru', 'uk', 'en', 'mixed', 'unknown'].includes(String(r.language)) ? r.language : 'unknown';
+  if (!actions.length && r.actions.length) throw new AIError('INVALID_OUTPUT', 'Ответ ИИ не прошёл проверку схемы');
+  return { language, actions };
+}
+
+/** Map common synonyms models use for enum fields of the image contracts; unknown → neutral value. */
+function normalizeImage(kind: string, raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const o = { ...(raw as Record<string, unknown>) };
+  const low = (v: unknown) => String(v ?? '').toLowerCase();
+  if (typeof o.value === 'string') o.value = Number(String(o.value).replace(',', '.').replace(/[^\d.]/g, '')) || null;
+  if (typeof o.confidence === 'string') o.confidence = Number(o.confidence) || 0;
+  if (kind === 'weight') {
+    const u = low(o.unit);
+    o.unit = u.startsWith('k') || u.startsWith('к') ? 'kg' : u.startsWith('lb') || u.startsWith('pound') ? 'lb' : null;
+  }
+  if (kind === 'steps') {
+    const pr = low(o.period);
+    o.period = /day|daily|день|сут/.test(pr) ? 'day' : /week|недел/.test(pr) ? 'week' : /month|месяц/.test(pr) ? 'month' : 'unknown';
+    const m = low(o.metric);
+    o.metric = /step|шаг/.test(m) ? 'steps' : /dist|км|km/.test(m) ? 'distance' : /cal|кал/.test(m) ? 'calories' : 'other';
+  }
+  if (kind === 'meal') {
+    const mp = low(o.matchesPlan);
+    o.matchesPlan = ['yes', 'partly', 'no'].includes(mp) ? mp : 'unknown';
+    for (const k of ['possible', 'notVisible', 'questions']) if (!Array.isArray(o[k])) o[k] = [];
+    if (!Array.isArray(o.detected)) o.detected = [];
+  }
+  return o;
 }
 
 export class OpenAICompatibleProvider implements AIProvider {
@@ -224,7 +270,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     if (!res.ok) throw new AIError('HTTP', `ИИ: HTTP ${res.status}`);
     const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const text = json.choices?.[0]?.message?.content ?? '';
-    const parsed = opts.schemaName === 'parse' ? cleanActions(extractJson(text)) : extractJson(text);
+    const parsed = opts.schemaName === 'parse' ? cleanActions(extractJson(text)) : normalizeImage(opts.schemaName, extractJson(text));
     const result = opts.schema.safeParse(parsed);
     if (!result.success) throw new AIError('INVALID_OUTPUT', 'Ответ ИИ не прошёл проверку схемы');
     return result.data;
