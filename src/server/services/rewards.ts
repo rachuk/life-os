@@ -69,6 +69,9 @@ export const XP_RULES = {
   inbox_processed: { points: 15, label: 'Входящие разобраны' },
   important_task: { points: 20, label: 'Важное личное дело сделано' },
   new_experience: { points: 25, label: 'Новое впечатление' },
+  habit_plan_day: { points: 5, label: 'День в пределах плана по привычке' },
+  skill_practice: { points: 5, label: 'Практика навыка' },
+  skill_checkpoint: { points: 40, label: 'Контрольное задание по навыку' },
 } as const;
 export type XpSource = keyof typeof XP_RULES;
 
@@ -130,6 +133,19 @@ export async function syncXp(tx: Tx, ctx: UserContext, now: DateTime, since?: Lo
     if (await grantXp(tx, ctx.userId, 'weekly_review', r.weekStartDate, d)) granted++;
     if (r.userNote?.trim() && (await grantXp(tx, ctx.userId, 'new_experience', `week:${r.weekStartDate}`, d))) granted++;
   }
+
+  // habit change: finished days within the agreed limit (behaviour, not "units not used")
+  const { daysWithinPlan } = await import('./habitChange');
+  for (const d of await daysWithinPlan(tx, ctx, from, addDays(today, -1))) {
+    if (await grantXp(tx, ctx.userId, 'habit_plan_day', d.key, d.date)) granted++;
+  }
+  // skills: practice sessions and passed checkpoints
+  const practice = await tx<{ id: string; localDate: string }[]>`
+    select id, local_date from skill_practice_logs where user_id = ${ctx.userId} and local_date between ${from} and ${today}`;
+  for (const pr of practice) if (await grantXp(tx, ctx.userId, 'skill_practice', pr.id, pr.localDate)) granted++;
+  const checkpoints = await tx<{ id: string; completedAt: Date }[]>`
+    select id, completed_at from skill_checkpoints where user_id = ${ctx.userId} and status = 'passed' and completed_at >= ${fromUtc}`;
+  for (const c of checkpoints) if (await grantXp(tx, ctx.userId, 'skill_checkpoint', c.id, localDateOf(c.completedAt, ctx.tz))) granted++;
 
   // inbox processed: only decidable for today (no pending items left + at least one handled today)
   const { start, end } = dayBoundsUtc(today, ctx.tz);

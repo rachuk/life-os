@@ -13,6 +13,7 @@ import { connectionForChat, consumeLinkToken, markChatBlocked } from './pairing'
 import { choosePurpose, handleAwaitedValue, handleIncomingImage, mealAction, photoValueAction } from './photos';
 import { claimButton, edit, reply, type ChatSession } from './session';
 import { getPending, setPending } from './state';
+import { cmdPlus, logFor, setReasonFromButton, undoFromButton } from './habits';
 import { isUpdate, type TgCallbackQuery, type TgMessage, type TgUpdate } from './types';
 
 /**
@@ -186,11 +187,21 @@ async function handleMessage(s: ChatSession, msg: TgMessage): Promise<string> {
       case '/stop':
         await cmdStop(s);
         break;
+      case '/plus':
+        await cmdPlus(s, 'use');
+        break;
+      case '/hold':
+        await cmdPlus(s, 'urge_resisted');
+        break;
       default:
         await reply(s, 'Не знаю такую команду. /help — список команд.');
         return 'command:unknown';
     }
     return `command:${cmd}`;
+  }
+  if (text && /^\+\s?1?$/.test(text)) {
+    await cmdPlus(s, 'use');
+    return 'habit:plus';
   }
   if (text) {
     const pending = await getPending(s.userId);
@@ -319,6 +330,25 @@ async function handleCallback(s: ChatSession, cq: TgCallbackQuery, answer: (t?: 
       if (p1 === 'no') {
         await answer(await rejectInbox(s, p2, messageId));
         return 'cb:inbox_no';
+      }
+      break;
+    }
+    case 'hc': {
+      if (p1 === 'p' || p1 === 'h') {
+        if (!isUuid(p2)) break;
+        await once(() => logFor(s, p2, p1 === 'p' ? 'use' : 'urge_resisted', messageId ?? null));
+        return `cb:hc_${p1}`;
+      }
+      if (p1 === 'r') {
+        const idx = Number(parts[3]);
+        if (!isUuid(p2) || !Number.isInteger(idx)) break;
+        await once(() => setReasonFromButton(s, p2, idx, messageId));
+        return 'cb:hc_reason';
+      }
+      if (p1 === 'x') {
+        if (!isUuid(p2)) break;
+        await once(() => undoFromButton(s, p2, messageId));
+        return 'cb:hc_undo';
       }
       break;
     }

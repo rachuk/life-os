@@ -35,6 +35,7 @@ const DEFAULT_SPECS: Partial<Record<EventKind, ReminderSpec>> = {
   snack: { type: 'soft' },
   workout: { type: 'important', leadMinutes: 30 },
   own_project: { type: 'soft' },
+  skill: { type: 'soft' },
   task: { type: 'important' },
   review: { type: 'review' },
   weekly_review: { type: 'review' },

@@ -28,6 +28,7 @@ export type EventKind =
   | 'sleep'
   | 'workout'
   | 'own_project'
+  | 'skill'
   | 'task'
   | 'review'
   | 'weekly_review'
@@ -56,6 +57,7 @@ export const KIND_LABELS: Record<EventKind, string> = {
   sleep: 'Сон',
   workout: 'Тренировка',
   own_project: 'Свой проект',
+  skill: 'Навык',
   task: 'Дело',
   review: 'Завершение дня',
   weekly_review: 'Обзор недели',

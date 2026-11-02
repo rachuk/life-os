@@ -6,6 +6,9 @@ import { getTodayData } from '@/server/views/today';
 import { formatDateRu } from '@/domain/time';
 import { Card } from '@/components/ui/Card';
 import { TodayClient } from '@/components/today/TodayClient';
+import { HabitQuickCard } from '@/components/habitChange/HabitQuickCard';
+import { currentLimit, dayTotal, listPrograms } from '@/server/services/habitChange';
+import { localDateOf } from '@/domain/time';
 
 export const metadata = { title: 'Сегодня' };
 
@@ -25,7 +28,25 @@ function Metric({ icon, label, value, hint, href }: { icon: React.ReactNode; lab
 export default async function TodayPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const user = await requirePageUser();
   const { date } = await searchParams;
-  const data = await inUser(user.id, (tx, ctx) => getTodayData(tx, ctx, now(), date ?? null));
+  const { data, habits } = await inUser(user.id, async (tx, ctx) => {
+    const today = localDateOf(now(), ctx.tz);
+    const programs = (await listPrograms(tx, user.id)).filter((p) => p.showOnToday);
+    return {
+      data: await getTodayData(tx, ctx, now(), date ?? null),
+      habits: await Promise.all(
+        programs.map(async (p) => ({
+          id: p.id,
+          title: p.title,
+          unit: p.unitLabel,
+          todayTotal: await dayTotal(tx, user.id, p.id, today),
+          limit: currentLimit(p, today),
+          phase: p.phase,
+          reasons: p.reasons,
+          alternatives: p.alternatives,
+        })),
+      ),
+    };
+  });
   const p = data.progress;
   return (
     <div className="space-y-5">
@@ -34,6 +55,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       </header>
 
       <TodayClient events={data.events} now={data.now} isToday={data.isToday} />
+
+      {data.isToday && habits.length ? habits.map((h) => <HabitQuickCard key={h.id} p={h} />) : null}
 
       <section aria-label="Показатели дня" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Metric icon={<Utensils className="size-3.5" />} label="Еда" value={data.meals.planned ? `${data.meals.confirmed} из ${data.meals.planned}` : '—'} hint={data.meals.open ? `без отметки: ${data.meals.open}` : 'подтверждённые приёмы'} href="/health" />

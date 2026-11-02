@@ -55,6 +55,7 @@ const ANSWER_KINDS: EventKind[] = [
   'meal_dinner',
   'workout',
   'own_project',
+  'skill',
   'task',
   'extra_work',
   'work',

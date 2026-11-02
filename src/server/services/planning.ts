@@ -584,6 +584,15 @@ export async function transitionEvent(
     }
   }
 
+  if (updated.kind === 'skill' && input.action === 'complete') {
+    const { practiceFromEvent } = await import('./skills');
+    await practiceFromEvent(tx, ctx.userId, {
+      id: updated.id,
+      templateId: updated.templateId,
+      localDate: updated.localDate,
+      minutes: updated.actualMinutes ?? Math.round((updated.endAt.getTime() - updated.startAt.getTime()) / 60000),
+    });
+  }
   await audit(tx, ctx.userId, 'schedule_event', ev.id, `transition:${input.action}`, { from: ev.status, to: updated.status, reason }, source);
   await acknowledgeEventNotifications(tx, ctx.userId, ev.id, input.action);
   await reconcileReminders(tx, ctx, now, { eventIds: [ev.id] });

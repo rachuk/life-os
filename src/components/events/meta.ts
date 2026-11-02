@@ -11,6 +11,7 @@ export const KIND_COLOR: Record<EventKind, string> = {
   sleep: 'var(--c-sleep)',
   workout: 'var(--c-workout)',
   own_project: 'var(--c-project)',
+  skill: 'var(--c-project)',
   task: 'var(--c-task)',
   review: 'var(--c-review)',
   weekly_review: 'var(--c-review)',

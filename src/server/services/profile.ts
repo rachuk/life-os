@@ -248,7 +248,7 @@ export async function syncTemplates(tx: Tx, userId: string, prefs: RoutinePrefs,
         reminder = excluded.reminder, enabled = excluded.enabled, sort_order = excluded.sort_order`;
   }
   // standard templates that no longer apply (e.g. snacks switched off) are disabled, not deleted
-  await tx`update schedule_templates set enabled = false where user_id = ${userId} and not (key = any(${keys}))`;
+  await tx`update schedule_templates set enabled = false where user_id = ${userId} and not (key = any(${keys})) and key not like 'skill:%'`;
 }
 
 async function savePrefs(tx: Tx, userId: string, p: RoutinePrefs): Promise<void> {

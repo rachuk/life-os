@@ -41,6 +41,8 @@ async function main() {
         { command: 'today', description: 'План на сегодня' },
         { command: 'tomorrow', description: 'План на завтра' },
         { command: 'work', description: 'Нужно поработать — предпросмотр перестройки' },
+        { command: 'plus', description: '+1 к привычке, которую сокращаю' },
+        { command: 'hold', description: 'Удержался' },
         { command: 'help', description: 'Что умеет бот' },
         { command: 'stop', description: 'Выключить напоминания в Telegram' },
       ],

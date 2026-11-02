@@ -1,4 +1,4 @@
-import { Bell, ChevronRight, Dumbbell, Gift, Moon, ScrollText, Settings, ShoppingBasket } from 'lucide-react';
+import { Bell, ChevronRight, Dumbbell, Gift, GraduationCap, Moon, ScrollText, Settings, ShoppingBasket, Sprout } from 'lucide-react';
 import Link from 'next/link';
 import { requirePageUser } from '@/server/auth/current';
 import { Card } from '@/components/ui/Card';
@@ -9,6 +9,8 @@ export const metadata = { title: 'Ещё' };
 const LINKS = [
   { href: '/shopping', label: 'Покупки', hint: 'Список на неделю и запасы', icon: ShoppingBasket },
   { href: '/workouts', label: 'Тренировки', hint: 'Программа и занятия', icon: Dumbbell },
+  { href: '/habits', label: 'Изменение привычек', hint: 'Например, IQOS: наблюдение и мягкое снижение', icon: Sprout },
+  { href: '/skills', label: 'Навыки', hint: 'Языки, речь, управление людьми', icon: GraduationCap },
   { href: '/review/week', label: 'Обзор недели', hint: 'Факты, закономерности, предложения', icon: ScrollText },
   { href: '/review/evening', label: 'Вечерний обзор', hint: 'Завершить день и план на завтра', icon: Moon },
   { href: '/rewards', label: 'Награды', hint: 'Фонд желаний и достижения', icon: Gift },
