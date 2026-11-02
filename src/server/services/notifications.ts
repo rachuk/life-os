@@ -364,7 +364,19 @@ async function processOne(row: DueRow, now: DateTime, senders: ChannelSenders): 
         let lastErr = '';
         for (const s of subs) {
           try {
-            await senders.webPush(s, { title: msg.title, body: msg.body, url: msg.path, tag: row.eventId ?? row.id, outboxId: row.id });
+            await senders.webPush(s, {
+              title: msg.title,
+              body: msg.body,
+              url: msg.path,
+              tag: row.eventId ?? row.id,
+              outboxId: row.id,
+              eventId: row.eventId,
+              // iOS ignores notification buttons; Android / desktop Chrome show up to two
+              actions: msg.buttons
+                .filter((b) => b.action.type === 'transition')
+                .slice(0, 2)
+                .map((b) => ({ action: b.action.type === 'transition' ? b.action.transition : 'open', title: b.label })),
+            });
             delivered++;
             await tx`update push_subscriptions set last_success_at = now() where id = ${s.id}`;
           } catch (err) {

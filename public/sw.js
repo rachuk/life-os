@@ -151,14 +151,38 @@ self.addEventListener('push', (event) => {
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     lang: 'ru',
-    data: { url: typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/today' },
+    data: {
+      url: typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/today',
+      eventId: typeof data.eventId === 'string' ? data.eventId : null,
+    },
+    actions: Array.isArray(data.actions) ? data.actions.slice(0, 2).filter((a) => a && typeof a.action === 'string' && typeof a.title === 'string') : [],
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
+const QUICK_ACTIONS = ['start', 'complete', 'snooze', 'skip'];
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = new URL((event.notification.data && event.notification.data.url) || '/today', self.location.origin).href;
+  const data = event.notification.data || {};
+  // a button in the notification (Android / desktop Chrome): answer without opening the app
+  if (event.action && QUICK_ACTIONS.includes(event.action) && data.eventId) {
+    event.waitUntil(
+      fetch(`/api/plan/events/${data.eventId}/transition`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(event.action === 'snooze' ? { action: 'snooze', snoozeMinutes: 15 } : { action: event.action }),
+      })
+        .then((r) => {
+          if (!r.ok) throw new Error(String(r.status));
+          return self.registration.showNotification('Отмечено', { body: 'Ответ сохранён в Life OS', tag: `ack-${data.eventId}`, icon: '/icons/icon-192.png', silent: true });
+        })
+        .catch(() => self.clients.openWindow(new URL(data.url || '/today', self.location.origin).href)),
+    );
+    return;
+  }
+  const target = new URL(data.url || '/today', self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (list) => {
       for (const c of list) {

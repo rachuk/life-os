@@ -25,9 +25,9 @@ function Metric({ icon, label, value, hint, href }: { icon: React.ReactNode; lab
   );
 }
 
-export default async function TodayPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ date?: string; event?: string }> }) {
   const user = await requirePageUser();
-  const { date } = await searchParams;
+  const { date, event } = await searchParams;
   const t = now();
   const { data, habits } = await inUser(user.id, async (tx, ctx) => {
     const today = localDateOf(t, ctx.tz);
@@ -89,6 +89,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         metrics={metrics}
         habits={data.isToday && habits.length ? <div className="space-y-2">{habits.map((h) => <HabitQuickCard key={h.id} p={h} />)}</div> : null}
         showChannelsHint={!data.telegramConnected}
+        focusEventId={event ?? null}
       />
     </div>
   );

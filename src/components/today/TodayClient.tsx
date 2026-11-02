@@ -22,6 +22,7 @@ export interface TodayClientProps {
   metrics: ReactNode;
   habits: ReactNode;
   showChannelsHint: boolean;
+  focusEventId?: string | null;
 }
 
 const HINT_KEY = 'lifeos-hint-channels-dismissed';
@@ -73,10 +74,14 @@ function ChannelsHint() {
   );
 }
 
-export function TodayClient({ events, now, isToday, date, metrics, habits, showChannelsHint }: TodayClientProps) {
+export function TodayClient({ events, now, isToday, date, metrics, habits, showChannelsHint, focusEventId }: TodayClientProps) {
   const router = useRouter();
   const toast = useToast();
-  const [sheet, setSheet] = useState<{ e: UiEvent; mode: 'menu' | 'skip' | 'reschedule' | 'meal' } | null>(null);
+  // opened from a reminder (push / in-app): show that event's quick actions right away
+  const [sheet, setSheet] = useState<{ e: UiEvent; mode: 'menu' | 'skip' | 'reschedule' | 'meal' } | null>(() => {
+    const e = focusEventId ? events.find((x) => x.id === focusEventId) : undefined;
+    return e && !['completed', 'skipped', 'cancelled'].includes(e.status) ? { e, mode: 'menu' } : null;
+  });
   const [busy, setBusy] = useState<string | null>(null);
   const [showPending, setShowPending] = useState(false);
   const byId = new Map(events.map((e) => [e.id, e]));
@@ -257,7 +262,14 @@ export function TodayClient({ events, now, isToday, date, metrics, habits, showC
 
       {showChannelsHint ? <ChannelsHint /> : null}
 
-      <EventActionSheet event={sheet?.e ?? null} initialMode={sheet?.mode ?? 'menu'} onClose={() => setSheet(null)} />
+      <EventActionSheet
+        event={sheet?.e ?? null}
+        initialMode={sheet?.mode ?? 'menu'}
+        onClose={() => {
+          setSheet(null);
+          if (focusEventId) router.replace('/today');
+        }}
+      />
     </>
   );
 }
